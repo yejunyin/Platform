@@ -1,0 +1,4 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Wed Aug 19 17:19:39 CST 2026
+eb-common-1.0.0.jar>=
+eb-common-1.0.0.pom>=

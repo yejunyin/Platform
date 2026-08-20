@@ -1,0 +1,482 @@
+// 物料呼叫系统 · 样式（由 index.vue 的 <style scoped src> 引入）
+@use '@/styles/variables.scss' as v;
+
+.mcs-page {
+  .pagination-bar {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    margin-top: 12px;
+    padding: 8px 4px;
+  }
+
+  .page-header {
+    margin-bottom: 14px;
+    .hm-clock {
+      font-family: v.$font-mono;
+      color: v.$primary-color;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-shadow: 0 0 6px rgba(26,179,255,0.5);
+      margin-right: 4px;
+    }
+  }
+
+  /* ---------- 子视图分段开关 ---------- */
+  .mcs-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 14px;
+    padding: 4px;
+    background: v.$panel-bg-deep;
+    border: 1px solid v.$border-color;
+    border-radius: v.$radius-sm;
+    clip-path: polygon(0 4px, 4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px));
+    .mcs-tab {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 9px 14px;
+      background: transparent;
+      border: 1px solid transparent;
+      color: v.$text-secondary;
+      cursor: pointer;
+      font-family: v.$font-display;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      font-weight: 600;
+      transition: all 0.15s;
+      clip-path: polygon(0 3px, 3px 0, calc(100% - 3px) 0, 100% 3px, 100% calc(100% - 3px), calc(100% - 3px) 100%, 3px 100%, 0 calc(100% - 3px));
+      &:hover { color: v.$primary-color; background: rgba(26,179,255,0.08); }
+      &.active {
+        color: v.$primary-color;
+        background: linear-gradient(180deg, rgba(26,179,255,0.18) 0%, rgba(26,179,255,0.04) 100%);
+        border-color: v.$primary-color;
+        box-shadow: inset 0 0 18px rgba(26,179,255,0.18), v.$glow-primary;
+        text-shadow: 0 0 6px rgba(26,179,255,0.6);
+      }
+    }
+    .mcs-tab-badge {
+      :deep(.el-badge__content) {
+        background: v.$danger-color;
+        border: 1px solid v.$danger-color;
+        font-family: v.$font-mono;
+        font-weight: 700;
+        box-shadow: v.$glow-danger;
+      }
+    }
+  }
+
+  .mcs-view { animation: fadeIn 0.2s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ---------- 统计卡片 ---------- */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+  .stat-card {
+    background: linear-gradient(180deg, v.$panel-bg 0%, v.$panel-bg-deep 100%);
+    border: 1px solid v.$border-color;
+    border-radius: v.$radius-sm;
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    position: relative;
+    overflow: hidden;
+    clip-path: polygon(0 6px, 6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px));
+    &::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 3px;
+      background: v.$primary-color;
+    }
+    &.stat-green::before { background: v.$success-color; }
+    &.stat-amber::before { background: v.$warning-color; }
+    &.stat-red::before { background: v.$danger-color; }
+    &:hover { border-color: v.$border-light; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+    .stat-icon {
+      width: 46px; height: 46px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+      border: 1px solid v.$border-color;
+      flex-shrink: 0;
+      &.icon-blue { background: rgba(122,184,255,0.12); border-color: v.$info-color; color: v.$info-color; }
+      &.icon-green { background: rgba(0,255,148,0.12); border-color: v.$success-color; color: v.$success-color; box-shadow: v.$glow-success; }
+      &.icon-amber { background: rgba(255,176,32,0.12); border-color: v.$warning-color; color: v.$warning-color; box-shadow: v.$glow-warn; }
+      &.icon-red { background: rgba(255,61,90,0.12); border-color: v.$danger-color; color: v.$danger-color; box-shadow: v.$glow-danger; }
+    }
+    .stat-value {
+      font-size: 28px;
+      font-weight: 800;
+      line-height: 1.1;
+      color: v.$text-primary;
+      text-shadow: 0 0 8px rgba(26,179,255,0.3);
+    }
+    .stat-label {
+      font-size: 12px;
+      color: v.$text-secondary;
+      margin-top: 2px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .stat-sub {
+      font-size: 11px;
+      color: v.$text-placeholder;
+      margin-top: 3px;
+    }
+  }
+
+  /* ---------- 看板 ---------- */
+  .mcs-kanban-tools {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 11px;
+    color: v.$text-secondary;
+    .refresh-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: v.$success-color;
+      box-shadow: 0 0 6px v.$success-color;
+      animation: refresh-pulse 2s ease-in-out infinite;
+      margin-right: 4px;
+    }
+    @keyframes refresh-pulse { 0%,100% { opacity:1; transform: scale(1); } 50% { opacity:0.4; transform: scale(0.7); } }
+  }
+
+  .kanban-board {
+    display: grid;
+    gap: 12px;
+  }
+  .kanban-column {
+    background: v.$panel-bg-deep;
+    border: 1px solid v.$border-color;
+    border-radius: v.$radius-sm;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    .kanban-col-header {
+      padding: 9px 14px;
+      font-weight: 700;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 2px solid;
+      letter-spacing: 0.1em;
+      background: v.$panel-bg;
+      text-transform: uppercase;
+      .col-count {
+        font-size: 12px;
+        background: v.$panel-bg-hover;
+        padding: 1px 8px;
+        color: v.$text-secondary;
+        font-weight: 700;
+        min-width: 22px;
+        text-align: center;
+      }
+    }
+    &.col-pending .kanban-col-header { border-color: v.$text-placeholder; color: v.$text-secondary; }
+    &.col-preparing .kanban-col-header { border-color: v.$warning-color; color: v.$warning-color; }
+    &.col-ready .kanban-col-header { border-color: v.$success-color; color: v.$success-color; }
+    &.col-calling .kanban-col-header { border-color: v.$danger-color; color: v.$danger-color; }
+    .kanban-col-body {
+      padding: 8px;
+      flex: 1;
+      min-height: 200px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .kanban-empty {
+      text-align: center;
+      padding: 30px 10px;
+      color: v.$text-placeholder;
+      font-size: 13px;
+    }
+  }
+
+  .task-card {
+    background: v.$panel-bg;
+    border: 1px solid v.$border-color;
+    border-radius: v.$radius-xs;
+    padding: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+    border-left: 3px solid v.$text-placeholder;
+    &:hover {
+      border-color: v.$border-light;
+      background: v.$panel-bg-hover;
+      transform: translateX(2px);
+    }
+    &.priority-urgent { border-left-color: v.$danger-color; }
+    &.priority-high { border-left-color: v.$warning-color; }
+    &.priority-normal { border-left-color: v.$info-color; }
+    &.priority-low { border-left-color: v.$border-color; }
+    .tc-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 6px;
+    }
+    .task-card-id {
+      font-size: 11px;
+      color: v.$text-placeholder;
+      letter-spacing: 0.05em;
+    }
+    .task-card-name {
+      font-size: 13px;
+      font-weight: 600;
+      margin-top: 2px;
+      color: v.$text-primary;
+    }
+    .task-card-meta {
+      display: flex;
+      gap: 10px;
+      font-size: 11px;
+      color: v.$text-secondary;
+      margin-bottom: 6px;
+      span {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+      }
+      .el-icon { font-size: 12px; }
+    }
+    .shortage-tag {
+      color: v.$danger-color !important;
+      background: rgba(255,61,90,0.12);
+      padding: 1px 6px;
+      border: 1px solid v.$danger-color;
+      font-weight: 600;
+    }
+    .priority-badge {
+      font-size: 10px;
+      padding: 1px 6px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      &.urgent { background: rgba(255,61,90,0.15); color: v.$danger-color; border: 1px solid v.$danger-color; }
+      &.high { background: rgba(255,138,26,0.15); color: v.$high-color; border: 1px solid v.$high-color; }
+      &.normal { background: rgba(122,184,255,0.12); color: v.$info-color; border: 1px solid v.$info-color; }
+      &.low { background: rgba(128,128,128,0.12); color: v.$text-placeholder; border: 1px solid v.$border-color; }
+    }
+    .kanban-col-pager {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 8px 4px 2px;
+      border-top: 1px dashed v.$border-color;
+      .kanban-page-info {
+        font-size: 12px;
+        color: v.$text-secondary;
+        min-width: 40px;
+        text-align: center;
+      }
+    }
+    .task-progress {
+      margin-top: 6px;
+      .progress-text {
+        display: flex;
+        justify-content: space-between;
+        font-size: 10px;
+        color: v.$text-placeholder;
+        margin-top: 3px;
+      }
+    }
+  }
+
+  /* ---------- 通用工具 ---------- */
+  .filter-bar {
+    padding: 12px 0;
+    border-bottom: 1px dashed v.$border-color;
+    margin-bottom: 14px;
+  }
+
+  .clickable {
+    cursor: pointer;
+    color: v.$primary-color;
+    font-weight: 600;
+    &:hover { text-decoration: underline; }
+  }
+
+  .mono { font-family: v.$font-mono; }
+  .text-muted { color: v.$text-placeholder; }
+  .danger-text { color: v.$danger-color; font-weight: 600; }
+  .finished-text { color: v.$text-placeholder; font-size: 12px; }
+
+  .td-progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    span { font-size: 12px; color: v.$text-placeholder; }
+  }
+  .td-actions {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+  }
+
+  /* ---------- 备料详情面板 ---------- */
+  .detail-panel {
+    background: v.$panel-bg;
+    border: 1px solid v.$border-color;
+    border-radius: v.$radius-sm;
+    margin-bottom: 14px;
+    .detail-header {
+      padding: 11px 16px;
+      border-bottom: 1px solid v.$border-color;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: v.$panel-bg-deep;
+      h3 {
+        font-size: 15px;
+        margin: 0;
+        color: v.$text-primary;
+        font-weight: 600;
+        .detail-id {
+          font-size: 13px;
+          color: v.$text-placeholder;
+          font-weight: 400;
+          margin-left: 8px;
+        }
+      }
+    }
+    .detail-info {
+      display: flex;
+      gap: 24px;
+      padding: 14px 16px;
+      flex-wrap: wrap;
+      .info-item {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .info-label {
+        font-size: 11px;
+        color: v.$text-placeholder;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+      .info-value {
+        font-size: 13px;
+        font-weight: 600;
+        color: v.$text-primary;
+      }
+    }
+  }
+
+  /* ---------- 预警列表 ---------- */
+  .alert-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .alert-card {
+    background: v.$panel-bg;
+    border: 1px solid v.$border-color;
+    border-radius: v.$radius-sm;
+    padding: 13px 16px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    border-left: 4px solid v.$warning-color;
+    transition: all 0.15s;
+    &:hover { background: v.$panel-bg-hover; }
+    &.danger { border-left-color: v.$danger-color; }
+    &.info { border-left-color: v.$info-color; }
+    &.resolved { opacity: 0.45; }
+    .alert-icon { font-size: 18px; flex-shrink: 0; }
+    .alert-content { flex: 1; }
+    .alert-message { font-size: 13px; font-weight: 600; color: v.$text-primary; }
+    .alert-meta {
+      font-size: 11px;
+      color: v.$text-placeholder;
+      margin-top: 4px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    .alert-action { flex-shrink: 0; }
+  }
+
+  /* ---------- 空状态 ---------- */
+  .empty-state {
+    text-align: center;
+    padding: 50px 20px;
+    color: v.$text-placeholder;
+    .empty-icon {
+      font-size: 40px;
+      margin-bottom: 10px;
+      opacity: 0.5;
+    }
+    .empty-text { font-size: 14px; }
+  }
+
+  /* ---------- 备齐弹窗 ---------- */
+  .modal-tip {
+    margin-bottom: 14px;
+    padding: 8px 12px;
+    background: v.$panel-bg-deep;
+    border: 1px solid v.$border-color;
+    border-radius: v.$radius-sm;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    .tip-ok { color: v.$success-color; }
+    .tip-warn { color: v.$warning-color; }
+  }
+
+  /* ---------- 叫料弹窗 ---------- */
+  .call-info {
+    .form-group {
+      margin-bottom: 12px;
+      label {
+        display: block;
+        font-size: 12px;
+        font-weight: 600;
+        margin-bottom: 5px;
+        color: v.$text-secondary;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .readonly-field {
+        padding: 7px 11px;
+        font-size: 14px;
+        background: v.$content-bg;
+        border: 1px solid v.$border-color;
+        border-radius: v.$radius-xs;
+        color: v.$text-primary;
+      }
+    }
+  }
+}
+
+/* ---------- 表格行高亮（备料中） ---------- */
+:deep(.el-table) {
+  --el-text-color-regular: #000;
+  td .cell { color: #000; }
+}
+:deep(.ind-table) {
+  .row-preparing {
+    background: rgba(255,176,32,0.12) !important;
+    box-shadow: inset 4px 0 0 0 v.$warning-color;
+    animation: preparing-glow 2.5s ease-in-out infinite;
+    td { background: rgba(255,176,32,0.12) !important; }
+  }
+  @keyframes preparing-glow {
+    0%, 100% { box-shadow: inset 4px 0 0 0 v.$warning-color, inset 0 0 0 9999px rgba(255,176,32,0.05); }
+    50%      { box-shadow: inset 4px 0 0 0 v.$warning-color, inset 0 0 0 9999px rgba(255,176,32,0.12); }
+  }
+}

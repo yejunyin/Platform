@@ -1,0 +1,6 @@
+-- 检查 mes_dwd_productOrder 表中是否存在 BOMflag 列
+SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'mes_dwd_productOrder'
+  AND COLUMN_NAME IN ('BOMflag', 'bomflag', 'BOMFlag')
+ORDER BY COLUMN_NAME;

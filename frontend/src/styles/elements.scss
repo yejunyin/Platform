@@ -1,0 +1,437 @@
+@use './variables.scss' as v;
+
+// ============================================================
+//  Element Plus 工业风主题覆盖（Dark-like 定制）
+//  用 CSS Variables + deep selector 覆盖 EP 默认样式
+// ============================================================
+
+:root {
+  // ---------- 主色（覆盖 Element Plus 默认蓝） ----------
+  --el-color-primary:                  #{v.$primary-color};
+  --el-color-primary-light-3:          #{v.$primary-color-light};
+  --el-color-primary-light-5:          #{v.$primary-color};
+  --el-color-primary-light-7:          #{v.$primary-color-dark};
+  --el-color-primary-light-8:          #{v.$primary-color-dark};
+  --el-color-primary-light-9:          #12273d;
+  --el-color-primary-dark-2:           #{v.$primary-color-dark};
+
+  --el-color-success:                  #{v.$success-color};
+  --el-color-success-light-3:          #52ffb3;
+  --el-color-success-light-5:          #00ff94;
+  --el-color-success-light-7:          #00c774;
+  --el-color-success-light-8:          #009a5a;
+  --el-color-success-light-9:          #0a3224;
+  --el-color-success-dark-2:           #00cc77;
+
+  --el-color-warning:                  #{v.$warning-color};
+  --el-color-warning-light-3:          #ffc85a;
+  --el-color-warning-light-5:          #ffb020;
+  --el-color-warning-light-7:          #d08c16;
+  --el-color-warning-light-8:          #a46e10;
+  --el-color-warning-light-9:          #3a2a0c;
+  --el-color-warning-dark-2:           #d08c16;
+
+  --el-color-danger:                   #{v.$danger-color};
+  --el-color-danger-light-3:           #ff7a8e;
+  --el-color-danger-light-5:           #ff3d5a;
+  --el-color-danger-light-7:           #d0304a;
+  --el-color-danger-light-8:           #a1243a;
+  --el-color-danger-light-9:           #3d1019;
+  --el-color-danger-dark-2:            #d0304a;
+
+  --el-color-info:                     #{v.$info-color};
+
+  // ---------- 文字 ----------
+  --el-text-color-primary:             #{v.$text-primary};
+  --el-text-color-regular:             #{v.$text-regular};
+  --el-text-color-secondary:           #{v.$text-secondary};
+  --el-text-color-placeholder:         #{v.$text-placeholder};
+
+  // ---------- 背景 & 边框 ----------
+  --el-bg-color:                       #{v.$panel-bg};
+  --el-bg-color-page:                  #{v.$bg-color};
+  --el-bg-color-overlay:               #{v.$panel-bg};
+
+  --el-border-color:                   #{v.$border-color};
+  --el-border-color-light:             #{v.$border-light};
+  --el-border-color-lighter:           #{v.$border-color};
+  --el-border-color-extra-light:       #{v.$border-color};
+
+  --el-border-radius-base:             #{v.$radius-sm};
+  --el-border-radius-small:            #{v.$radius-xs};
+  --el-border-radius-round:            1000px;
+
+  --el-fill-color:                     #{v.$panel-bg-deep};
+  --el-fill-color-light:               #1a2635;
+  --el-fill-color-lighter:             #172230;
+  --el-fill-color-blank:               #{v.$panel-bg};
+
+  --el-mask-color:                     rgba(5, 10, 18, 0.75);
+  --el-mask-color-extra-light:         rgba(5, 10, 18, 0.55);
+
+  --el-header-bg-color:                #{v.$header-bg};
+  --el-menu-bg-color:                  #{v.$sidebar-bg};
+  --el-menu-hover-bg-color:            #{v.$sidebar-bg-active};
+  --el-menu-active-color:              #{v.$primary-color};
+  --el-menu-text-color:                #{v.$text-regular};
+  --el-disabled-bg-color:              #131c28;
+  --el-disabled-text-color:            #4a5a70;
+  --el-disabled-border-color:          #{v.$border-color};
+}
+
+// ============================================================
+//  按钮（工业：方形切角、内发光、按下凹陷）
+// ============================================================
+.el-button {
+  font-family: v.$font-display;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-radius: v.$radius-xs;
+  border-width: 1px;
+  transition: all .15s ease;
+  clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
+
+  // 底部加强光（焊线感）
+  box-shadow: inset 0 -2px 0 rgba(0,0,0,0.35);
+}
+.el-button:hover:not(.is-disabled) {
+  filter: brightness(1.15);
+}
+.el-button:active:not(.is-disabled) {
+  transform: translateY(1px);
+  box-shadow: inset 0 -1px 0 rgba(0,0,0,0.35);
+}
+.el-button--primary {
+  background: linear-gradient(180deg, v.$primary-color 0%, v.$primary-color-dark 100%);
+  color: #021420;
+  font-weight: 700;
+  border-color: v.$primary-color;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.12);
+  &:hover { box-shadow: v.$glow-primary, inset 0 -2px 0 rgba(0,0,0,0.35); }
+}
+.el-button--success {
+  background: linear-gradient(180deg, v.$success-color 0%, #00c774 100%);
+  color: #031c11;
+  font-weight: 700;
+  border-color: v.$success-color;
+  &:hover { box-shadow: v.$glow-success, inset 0 -2px 0 rgba(0,0,0,0.35); }
+}
+.el-button--warning {
+  background: linear-gradient(180deg, v.$warning-color 0%, #d08c16 100%);
+  color: #2b1901;
+  font-weight: 700;
+  border-color: v.$warning-color;
+  &:hover { box-shadow: v.$glow-warn, inset 0 -2px 0 rgba(0,0,0,0.35); }
+}
+.el-button--danger {
+  background: linear-gradient(180deg, v.$danger-color 0%, #d0304a 100%);
+  color: #2a0510;
+  font-weight: 700;
+  border-color: v.$danger-color;
+  &:hover { box-shadow: v.$glow-danger, inset 0 -2px 0 rgba(0,0,0,0.35); }
+}
+.el-button--default {
+  background: linear-gradient(180deg, #1c2839 0%, #141d2a 100%);
+  color: v.$text-primary;
+  border-color: v.$border-light;
+  &:hover {
+    color: v.$primary-color;
+    border-color: v.$primary-color;
+    background: #172230;
+  }
+}
+.el-button.is-link,
+.el-button.is-text {
+  clip-path: none;
+  box-shadow: none;
+}
+
+// ============================================================
+//  输入 / 下拉 / 日期：金属内嵌风格
+// ============================================================
+.el-input__wrapper {
+  background: v.$panel-bg-deep !important;
+  border: 1px solid v.$border-color;
+  border-radius: v.$radius-xs;
+  box-shadow: none !important;
+  padding: 2px 10px;
+  transition: all .15s;
+  &:hover { border-color: v.$border-light; }
+  &.is-focus {
+    border-color: v.$primary-color;
+    box-shadow: 0 0 0 2px rgba(26,179,255,0.15), inset 0 0 8px rgba(26,179,255,0.08) !important;
+  }
+}
+.el-input__inner {
+  color: v.$text-primary !important;
+  font-family: v.$font-mono;
+  &::placeholder { color: v.$text-placeholder; }
+}
+.el-textarea__inner {
+  background: v.$panel-bg-deep;
+  color: v.$text-primary;
+  border: 1px solid v.$border-color;
+  border-radius: v.$radius-xs;
+  font-family: v.$font-mono;
+  &:focus {
+    border-color: v.$primary-color;
+    box-shadow: 0 0 0 2px rgba(26,179,255,0.15);
+  }
+  &::placeholder { color: v.$text-placeholder; }
+}
+.el-select .el-input__wrapper.is-focus { box-shadow: 0 0 0 2px rgba(26,179,255,0.15) !important; }
+.el-select-dropdown {
+  border: 1px solid v.$border-color;
+  background: v.$panel-bg;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.6);
+}
+.el-select-dropdown__item {
+  color: v.$text-regular;
+  &.hover, &:hover { background: v.$panel-bg-hover; color: v.$text-primary; }
+  &.selected { color: v.$primary-color; font-weight: 600; background: rgba(26,179,255,0.08); }
+}
+.el-popper {
+  background: v.$panel-bg !important;
+  color: v.$text-primary !important;
+  border: 1px solid v.$border-color !important;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.65);
+}
+
+// ============================================================
+//  表单
+// ============================================================
+.el-form-item__label {
+  color: v.$text-secondary;
+  font-family: v.$font-display;
+  letter-spacing: 0.06em;
+}
+
+// ============================================================
+//  表格（HMI 控制台风：分隔表头、行间切分、选中高亮）
+// ============================================================
+.el-table {
+  --el-table-border-color: #{v.$border-color};
+  --el-table-header-bg-color: #0f1722;
+  --el-table-bg-color: #{v.$panel-bg};
+  --el-table-row-hover-bg-color: #{v.$panel-bg-hover};
+  --el-table-text-color: #{v.$text-regular};
+  --el-table-header-text-color: #{v.$text-primary};
+  color: v.$text-regular;
+  background: v.$panel-bg;
+  border: 1px solid v.$border-color;
+  border-radius: v.$radius-sm;
+  overflow: hidden;
+  font-size: 13px;
+}
+.el-table::before { background-color: v.$border-color !important; }
+.el-table tr { background: v.$panel-bg; }
+.el-table th.el-table__cell {
+  background: linear-gradient(180deg, #121e2e 0%, #0c1522 100%);
+  color: v.$text-primary !important;
+  font-family: v.$font-display;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+  border-bottom: 1px solid v.$border-accent;
+  font-size: 12px;
+}
+.el-table td.el-table__cell {
+  border-bottom: 1px solid v.$border-color !important;
+  font-family: v.$font-mono;
+  color: v.$text-regular;
+}
+.el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell {
+  background: rgba(255,255,255,0.015);
+}
+.el-table__body tr.current-row > td.el-table__cell {
+  background: rgba(26,179,255,0.10) !important;
+}
+.el-table .descending .sort-caret.descending,
+.el-table .ascending  .sort-caret.ascending {
+  border-bottom-color: v.$primary-color !important;
+  border-top-color: v.$primary-color !important;
+}
+.el-table__empty-block {
+  background: v.$panel-bg;
+  min-height: 140px;
+}
+.el-table__empty-text { color: v.$text-secondary; }
+
+// ============================================================
+//  Pagination
+// ============================================================
+.el-pagination {
+  color: v.$text-regular;
+  .btn-prev, .btn-next, .el-pager li {
+    background: v.$panel-bg-deep;
+    border: 1px solid v.$border-color;
+    color: v.$text-regular;
+    border-radius: v.$radius-xs;
+    min-width: 30px;
+    &:hover { color: v.$primary-color; border-color: v.$primary-color; }
+    &.is-active {
+      background: linear-gradient(180deg, v.$primary-color 0%, v.$primary-color-dark 100%);
+      color: #021420;
+      border-color: v.$primary-color;
+      font-weight: 700;
+      box-shadow: v.$glow-primary;
+    }
+  }
+  .el-pagination__total, .el-pagination__jump { color: v.$text-secondary; }
+  .el-input__wrapper { padding: 0 6px; }
+}
+
+// ============================================================
+//  Tag / Badge
+// ============================================================
+.el-tag {
+  border-radius: v.$radius-xs;
+  font-family: v.$font-display;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+  border-width: 1px;
+}
+.el-tag--success {
+  background: rgba(0,255,148,0.10);
+  border-color: rgba(0,255,148,0.45);
+  color: v.$success-color;
+}
+.el-tag--warning {
+  background: rgba(255,176,32,0.10);
+  border-color: rgba(255,176,32,0.45);
+  color: v.$warning-color;
+}
+.el-tag--danger {
+  background: rgba(255,61,90,0.10);
+  border-color: rgba(255,61,90,0.45);
+  color: v.$danger-color;
+}
+.el-tag--primary {
+  background: rgba(26,179,255,0.10);
+  border-color: rgba(26,179,255,0.45);
+  color: v.$primary-color;
+}
+.el-tag--info {
+  background: rgba(122,184,255,0.10);
+  border-color: rgba(122,184,255,0.35);
+  color: v.$info-color;
+}
+
+// ============================================================
+//  Dialog / Drawer：工业舱室浮窗
+// ============================================================
+.el-dialog {
+  background: linear-gradient(180deg, v.$panel-bg 0%, v.$panel-bg-deep 100%);
+  border: 1px solid v.$border-color;
+  border-radius: v.$radius-sm;
+  box-shadow: 0 18px 60px rgba(0,0,0,0.75), 0 0 0 1px rgba(26,179,255,0.18);
+  overflow: hidden;
+}
+.el-dialog__header {
+  background: linear-gradient(90deg, rgba(26,179,255,0.12) 0%, transparent 60%);
+  border-bottom: 1px solid v.$border-color;
+  padding: 14px 20px;
+}
+.el-dialog__title {
+  font-family: v.$font-display;
+  letter-spacing: 0.1em;
+  color: v.$text-primary;
+  text-transform: uppercase;
+}
+.el-dialog__body { color: v.$text-regular; padding: 18px 20px; }
+.el-dialog__footer { border-top: 1px dashed v.$border-color; padding: 14px 20px; }
+
+.el-drawer {
+  background: linear-gradient(180deg, v.$panel-bg 0%, v.$panel-bg-deep 100%);
+  border-left: 1px solid v.$border-color;
+  color: v.$text-regular;
+}
+
+// ============================================================
+//  Message / Notification：金属信息条
+// ============================================================
+.el-message {
+  background: v.$panel-bg !important;
+  border: 1px solid v.$border-color !important;
+  border-radius: v.$radius-xs;
+  color: v.$text-primary !important;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.6);
+  .el-message__content { color: v.$text-primary !important; }
+}
+.el-message--success { border-left: 3px solid v.$success-color !important; }
+.el-message--warning { border-left: 3px solid v.$warning-color !important; }
+.el-message--error   { border-left: 3px solid v.$danger-color  !important; }
+.el-message--info    { border-left: 3px solid v.$primary-color !important; }
+
+.el-notification {
+  background: v.$panel-bg !important;
+  border: 1px solid v.$border-color !important;
+  color: v.$text-primary;
+}
+
+// ============================================================
+//  其他：Tabs / Card / Checkbox / Radio / Switch / Progress
+// ============================================================
+.el-tabs__item {
+  color: v.$text-secondary;
+  font-family: v.$font-display;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  &.is-active { color: v.$primary-color; }
+}
+.el-tabs__active-bar { background-color: v.$primary-color; box-shadow: v.$glow-primary; }
+.el-tabs__nav-wrap::after { background-color: v.$border-color; }
+
+.el-card {
+  background: v.$panel-bg;
+  border: 1px solid v.$border-color;
+  color: v.$text-regular;
+  border-radius: v.$radius-sm;
+  .el-card__header { border-bottom: 1px dashed v.$border-color; color: v.$text-primary; }
+}
+
+.el-checkbox__inner, .el-radio__inner {
+  background: v.$panel-bg-deep;
+  border-color: v.$border-light;
+}
+.el-checkbox.is-checked .el-checkbox__inner,
+.el-radio.is-checked .el-radio__inner {
+  background-color: v.$primary-color;
+  border-color: v.$primary-color;
+}
+
+.el-switch.is-checked .el-switch__core {
+  background-color: v.$primary-color !important;
+  border-color: v.$primary-color !important;
+  box-shadow: v.$glow-primary;
+}
+
+.el-progress-bar__outer {
+  background: v.$panel-bg-deep;
+  border: 1px solid v.$border-color;
+}
+.el-progress-bar__inner {
+  background: linear-gradient(90deg, v.$primary-color 0%, v.$success-color 100%) !important;
+  box-shadow: inset 0 -2px 0 rgba(0,0,0,0.25);
+}
+
+// ============================================================
+//  Empty：控制台风
+// ============================================================
+.el-empty__description p { color: v.$text-secondary; }
+
+// ============================================================
+//  Cascader / DatePicker 弹层
+// ============================================================
+.el-picker-panel {
+  background: v.$panel-bg;
+  color: v.$text-primary;
+  border: 1px solid v.$border-color;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+  .el-date-table th { color: v.$text-secondary; border-bottom: 1px solid v.$border-color; }
+  .el-date-table td.available:hover { background: v.$panel-bg-hover; }
+  .el-date-table td.current:not(.disabled) span {
+    background: v.$primary-color; color: #021420; box-shadow: v.$glow-primary;
+  }
+}

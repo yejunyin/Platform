@@ -1,0 +1,63 @@
+// ============================================================
+//  工业风 / Industrial Theme - Design Tokens
+//  灵感来源：HMI / SCADA / CNC 面板 / 工控机界面 / 机械仪表盘
+//  底色：铸铁深灰 + 阴极蓝 + 状态色琥珀/橙/青柠/红警示
+// ============================================================
+
+// ---------- 主色板 ----------
+// 阴极电蓝（按钮/主色/激活）
+$primary-color:        #1ab3ff;
+$primary-color-dark:   #0f85bf;
+$primary-color-light:  #58d1ff;
+
+// 状态色
+$success-color:        #00ff94;   // 青柠绿（正常/OK）
+$warning-color:        #ffb020;   // 琥珀橙（警告）
+$danger-color:         #ff3d5a;   // 工业红（异常/急停）
+$info-color:           #7ab8ff;
+
+// 优先级
+$urgent-color:         #ff3d5a;
+$high-color:           #ff8a1a;
+$medium-color:         #1ab3ff;
+$low-color:            #5a6b80;
+
+// ---------- 文字（高对比度，适配暗色底） ----------
+$text-primary:         #e6f1ff;   // 主文字
+$text-regular:         #b8c6d9;   // 正文
+$text-secondary:       #7a8da6;   // 辅助文字
+$text-placeholder:     #3f4f66;
+
+// ---------- 铸铁深色面板 ----------
+$bg-color:             #0e141c;   // 全局背景（铸铁铁灰）
+$sidebar-bg:           #0a1019;   // 侧边栏（更深的控制舱）
+$sidebar-bg-active:    #112133;   // 侧栏激活
+$header-bg:            #101823;   // 顶部栏
+$content-bg:           #0e141c;   // 主内容背景
+$panel-bg:             #131c28;   // 卡片/面板背景
+$panel-bg-hover:       #172230;   // 悬浮
+$panel-bg-deep:        #0d131d;   // 内嵌深色
+
+// ---------- 边框：焊接线风格（半透明亮色金属边） ----------
+$border-color:         #243348;   // 面板边框
+$border-light:         #2d3f5a;
+$border-accent:        #1ab3ff;   // 激活/激活状态的蓝边
+$border-warn:          #ffb020;
+$border-danger:        #ff3d5a;
+$border-success:       #00ff94;
+
+// 面板边角切角（工业“切方”感）
+$radius-none:          0px;
+$radius-xs:            2px;
+$radius-sm:            3px;
+
+// ---------- 字体：等宽 + 无衬线 ----------
+$font-mono: 'JetBrains Mono', 'Consolas', 'Menlo', 'Fira Code', 'Courier New', monospace;
+$font-sans:  'Rajdhani', 'Oswald', 'DIN', 'Be Vietnam Pro', 'Microsoft YaHei', 'PingFang SC', -apple-system, sans-serif;
+$font-display: 'Oswald', 'Rajdhani', 'DIN Alternate', 'Impact', 'Microsoft YaHei', sans-serif;
+
+// ---------- 发光 / 工业状态灯 ----------
+$glow-primary:  0 0 8px rgba(26,179,255,0.75), 0 0 16px rgba(26,179,255,0.35);
+$glow-success:  0 0 8px rgba(0,255,148,0.75), 0 0 16px rgba(0,255,148,0.30);
+$glow-warn:     0 0 8px rgba(255,176,32,0.75), 0 0 16px rgba(255,176,32,0.30);
+$glow-danger:   0 0 8px rgba(255,61,90,0.75),  0 0 16px rgba(255,61,90,0.30);
