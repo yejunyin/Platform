@@ -20,7 +20,7 @@ public interface MesProductOrderMapper extends BaseMapper<MesProductOrder> {
      */
     @Select("select id,producttype,starttime,ordercode,pcode,machcode,materialid,materialname,total,spec,dept,staffname," +
             "scheduledpriority as schedulepriority,unit,BOMflag " +
-            "from mes_dwd_productOrder")
+            "from mes_dwd_productOrder where starttime >= CAST(GETDATE() AS DATE)  and dept='注塑车间' order by starttime asc")
     List<MesProductOrder> selectAllOrders();
 
     /**

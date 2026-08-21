@@ -147,11 +147,13 @@ export function useMaterialCall() {
   ])
 
   const kanbanColumns = computed(() => {
+    const sortByPlannedStart = (a: TaskComputed, b: TaskComputed) =>
+      (a.planned_start || '').localeCompare(b.planned_start || '')
     const cols = [
-      { key: 'pending', label: '待备料', tasks: tasksWithComputed.value.filter((t) => t.computed_status === 'pending') },
-      { key: 'preparing', label: '备料中', tasks: tasksWithComputed.value.filter((t) => t.computed_status === 'preparing') },
-      { key: 'ready', label: '已备齐', tasks: tasksWithComputed.value.filter((t) => t.computed_status === 'ready') },
-      { key: 'calling', label: '缺料/叫料', tasks: tasksWithComputed.value.filter((t) => t.computed_status === 'calling') },
+      { key: 'pending', label: '待备料', tasks: tasksWithComputed.value.filter((t) => t.computed_status === 'pending').sort(sortByPlannedStart) },
+      { key: 'preparing', label: '备料中', tasks: tasksWithComputed.value.filter((t) => t.computed_status === 'preparing').sort(sortByPlannedStart) },
+      { key: 'ready', label: '已备齐', tasks: tasksWithComputed.value.filter((t) => t.computed_status === 'ready').sort(sortByPlannedStart) },
+      { key: 'calling', label: '缺料/叫料', tasks: tasksWithComputed.value.filter((t) => t.computed_status === 'calling').sort(sortByPlannedStart) },
     ]
     return hideReadyTasks.value ? cols.filter((c) => c.key !== 'ready') : cols
   })
@@ -205,7 +207,7 @@ export function useMaterialCall() {
         t.order_no.toLowerCase().includes(s),
       )
     }
-    list.sort((a, b) => (a.schedulepriority ?? 99) - (b.schedulepriority ?? 99))
+    list.sort((a, b) => (a.planned_start || '').localeCompare(b.planned_start || ''))
     filteredTasks.value = list
     // 同步分页总数；若当前页超出新总数则回退到第 1 页
     taskPagination.total = list.length
@@ -373,7 +375,7 @@ export function useMaterialCall() {
     const shortage = m.required_qty - m.prepared_qty
     const canAutoFill = m.available_qty >= shortage
     prepareContext.value = { ...m, shortage, canAutoFill }
-    prepareForm.qty = canAutoFill ? shortage : 1
+    prepareForm.qty = shortage
     prepareForm.preparer = currentUser
     prepareModalVisible.value = true
   }

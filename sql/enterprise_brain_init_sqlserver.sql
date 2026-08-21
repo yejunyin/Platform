@@ -1,19 +1,13 @@
 -- ============================================================
 -- 企业大脑(Enterprise Brain) - 数据库初始化脚本
 -- 数据库: Microsoft SQL Server 2016+
+-- 目标库: HLEIMS2026082008001 (当前在用的 SQL Server 业务库)
 -- 排序规则: Chinese_PRC_CI_AS
 -- 创建日期: 2026-08-15
 -- ============================================================
 
--- 创建数据库
-IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = N'enterprise_brain')
-BEGIN
-    CREATE DATABASE [enterprise_brain]
-    COLLATE Chinese_PRC_CI_AS;
-END
-GO
-
-USE [enterprise_brain];
+-- 切换到当前在用的业务库（已存在，无需新建）
+USE [HLEIMS2026082008001];
 GO
 
 -- ============================================================
