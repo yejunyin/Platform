@@ -13,9 +13,19 @@
       </div>
       <div style="display: flex; gap: 8px; align-items: center">
         <span class="hm-clock mono">{{ clockText }}</span>
+        <el-button :icon="Download" @click="showApkQr">下载APP</el-button>
         <el-button type="primary" :icon="Refresh" @click="refreshAll">刷新</el-button>
       </div>
     </div>
+
+    <!-- APP下载二维码弹窗 -->
+    <el-dialog v-model="qrVisible" title="扫码下载 APP" width="360px" align-center>
+      <div class="qr-dialog-body">
+        <img v-if="apkQrUrl" :src="apkQrUrl" alt="APK 下载二维码" class="qr-img" />
+        <div class="qr-tip mono">请使用 PDA 扫描二维码下载</div>
+        <div class="qr-url mono">{{ APK_DOWNLOAD_URL }}</div>
+      </div>
+    </el-dialog>
 
     <!-- 工业工具栏 -->
     <div class="industrial-toolbar">
@@ -537,10 +547,12 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
+import QRCode from 'qrcode'
 import {
   Refresh, Search, RefreshLeft, Box, Grid, Clock, Tools,
   Tickets, Bell, WarningFilled, Warning, InfoFilled,
-  CircleCheckFilled, OfficeBuilding,
+  CircleCheckFilled, OfficeBuilding, Download,
 } from '@element-plus/icons-vue'
 import { useMaterialCall } from './useMaterialCall'
 import type { Material } from './types'
@@ -608,6 +620,15 @@ const {
   alertIconColor,
   alertTypeLabel,
 } = useMaterialCall()
+
+// APP 下载二维码
+const APK_DOWNLOAD_URL = 'http://192.168.1.155:3000/Download/app-debug.apk'
+const qrVisible = ref(false)
+const apkQrUrl = ref('')
+const showApkQr = async () => {
+  apkQrUrl.value = await QRCode.toDataURL(APK_DOWNLOAD_URL, { width: 280, margin: 2 })
+  qrVisible.value = true
+}
 </script>
 
 <style scoped lang="scss" src="./style.scss"></style>
