@@ -294,15 +294,14 @@
             <el-table-column label="物料编码" width="140">
               <template #default="{ row }"><span class="mono">{{ row.material_code }}</span></template>
             </el-table-column>
-            <el-table-column label="物料名称" min-width="160" prop="material_name" show-overflow-tooltip />
-            <el-table-column label="规格" min-width="150" prop="specification" show-overflow-tooltip />
+            <el-table-column label="物料名称" min-width="330" prop="material_name" show-overflow-tooltip />
             <el-table-column label="需求量" width="90">
               <template #default="{ row }">{{ row.required_qty }} {{ row.unit }}</template>
             </el-table-column>
             <el-table-column label="已备量" width="90">
               <template #default="{ row }">{{ row.prepared_qty }} {{ row.unit }}</template>
             </el-table-column>
-            <el-table-column label="缺口" width="80">
+            <el-table-column label="缺口" width="90">
               <template #default="{ row }">
                 <span :style="{ color: row.required_qty - row.prepared_qty > 0 ? 'var(--el-color-danger)' : 'var(--el-color-success)', fontWeight: row.required_qty - row.prepared_qty > 0 ? 600 : 400 }">
                   {{ Math.max(0, row.required_qty - row.prepared_qty) }} {{ row.unit }}
@@ -321,7 +320,7 @@
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="220" align="center" fixed="right">
+            <el-table-column label="操作" width="220" align="center" show-overflow-tooltip>
               <template #default="{ row }">
                 <div class="td-actions">
                   <el-button v-if="row.status !== 'ready'" type="success" size="small" @click="openPrepareModal(row as Material)">
@@ -395,7 +394,7 @@
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="140" align="center" fixed="right">
+          <el-table-column label="操作" width="140" align="center" show-overflow-tooltip>
             <template #default="{ row }">
               <el-button v-if="row.status === 'pending'" type="primary" size="small" @click="openRespondModal(row.id)">
                 响应
@@ -469,14 +468,6 @@
 
     <!-- ============== 弹窗：备齐 ============== -->
     <el-dialog v-model="prepareModalVisible" title="确认备齐" width="460px" append-to-body>
-      <div class="modal-tip" v-if="prepareContext">
-        <span v-if="prepareContext.canAutoFill" class="tip-ok">
-          <el-icon><CircleCheckFilled /></el-icon>库存充足，已自动填入缺口
-        </span>
-        <span v-else class="tip-warn">
-          <el-icon><WarningFilled /></el-icon>库存不足，请手动输入
-        </span>
-      </div>
       <el-form label-position="top">
         <el-form-item label="本次备料数量">
           <el-input-number v-model="prepareForm.qty" :min="1" style="width: 100%" />
