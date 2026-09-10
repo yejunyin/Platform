@@ -1,0 +1,8 @@
+{
+  "format": 1,
+  "useragent": "ApiClient",
+  "rid": "save-test-01",
+  "timestamp": "2026-09-09 14:12:00",
+  "v": "1.0",
+  "parameters": ["PRD_ReturnMtrl", "{\"NeedUpDateFields\":[],\"NeedReturnFields\":[],\"IsDeleteEntry\":\"true\",\"Model\":{\"FBillType\":{\"FNumber\":\"SCTLD01_SYS\"},\"FDate\":\"2026-09-09 00:00:00\",\"FStockOrgId\":{\"FNumber\":\"102\"},\"FPrdOrgId\":{\"FNumber\":\"102\"},\"FOwnerTypeId\":\"BD_OwnerOrg\",\"FOwnerId\":{\"FNumber\":\"102\"},\"FDescription\":\"仓位格式验证测试单-可删除\",\"FEntity\":[{\"FMaterialId\":{\"FNumber\":\"6570007001\"},\"FUnitID\":{\"FNumber\":\"zhi1\"},\"FAPPQty\":2.0,\"FQty\":2.0,\"FReturnType\":1,\"FStockId\":{\"FNumber\":\"005.004\"},\"FLot\":{\"FNumber\":\"20260519\"},\"FStockLocId\":{\"FNumber\":\"电机原材料\"},\"FStockStatusId\":{\"FNumber\":\"KCZT01_SYS\"},\"FOwnerTypeId\":\"BD_OwnerOrg\",\"FOwnerId\":{\"FNumber\":\"102\"},\"FKeeperTypeId\":\"BD_KeeperOrg\",\"FKeeperId\":{\"FNumber\":\"102\"},\"FMOBillNo\":\"WORK26071390517A\",\"FMOId\":1001545,\"FMOEntryId\":1065257,\"FMOEntrySeq\":1,\"FSrcBillType\":\"PRD_PPBOM\",\"FSrcBillNo\":\"PPBOM00896056\",\"FPPBomEntryId\":4595421,\"FPPBomBillNo\":\"PPBOM00896056\",\"FParentOwnerId\":{\"FNumber\":\"102\"},\"FParentMaterialId\":{\"FNumber\":\"5680031001\"},\"FWorkShopId1\":{\"FNumber\":\"1022017\"}}]}}"]
+}

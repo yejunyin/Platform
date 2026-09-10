@@ -1,0 +1,22 @@
+{
+  "applicantName": "叶军营",
+  "applicantDept": "生产一部",
+  "reasonId": 1,
+  "reasonText": "生产超损耗",
+  "qcStaffId": "QC001",
+  "qcStaffName": "王质检",
+  "orderList": [
+    {
+      "orderCode": "WORK26071390517A",
+      "materials": [
+        {
+          "materialCode": "6570007001",
+          "materialName": "骨架DG-452D",
+          "spec": "1009",
+          "unit": "只",
+          "qty": 2
+        }
+      ]
+    }
+  ]
+}

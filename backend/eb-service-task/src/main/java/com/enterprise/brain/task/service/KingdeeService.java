@@ -11,11 +11,14 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.math.BigDecimal;
 import java.util.*;
 
 /**
  * 金蝶 K3 Cloud WebAPI 调用服务
- * <p>负责：登录 → 拿 SessionId → 调用 ExecuteBillQuery 拉取生产用料清单 (PRD_PPBOM)。</p>
+ * <p>负责：登录（会话缓存）→ ExecuteBillQuery 查询 / View 加载 / Save-Submit-Audit 单据操作。</p>
+ * <p>补退料扩展：生产订单(PRD_MO)、用料清单(PRD_PPBOM)、即时库存(STK_Inventory)查询，
+ * 生产退料单(PRD_ReturnMtrl)与生产补料单(PRD_FeedMtrl)生成（均含用料清单上查关联）。</p>
  */
 @Service
 @Slf4j
@@ -25,11 +28,22 @@ public class KingdeeService {
             "/Kingdee.BOS.WebApi.ServicesStub.AuthService.ValidateUser.common.kdsvc";
     private static final String BILL_QUERY_PATH =
             "/Kingdee.BOS.WebApi.ServicesStub.DynamicFormService.ExecuteBillQuery.common.kdsvc";
+    private static final String VIEW_PATH =
+            "/Kingdee.BOS.WebApi.ServicesStub.DynamicFormService.View.common.kdsvc";
+    private static final String SAVE_PATH =
+            "/Kingdee.BOS.WebApi.ServicesStub.DynamicFormService.Save.common.kdsvc";
+    private static final String SUBMIT_PATH =
+            "/Kingdee.BOS.WebApi.ServicesStub.DynamicFormService.Submit.common.kdsvc";
+    private static final String AUDIT_PATH =
+            "/Kingdee.BOS.WebApi.ServicesStub.DynamicFormService.Audit.common.kdsvc";
 
     private static final String FORM_ID = "PRD_PPBOM";
     private static final String FIELD_KEYS =
             "FMOBillNO,FMaterialID2.fnumber,FMaterialID2.fname,FMaterialModel1," +
             "FNeedQty2,FUnitID2.fname,FInventoryQty,FStockLOCID";
+
+    /** 会话缓存有效期（毫秒），金蝶会话默认30分钟，取20分钟提前失效 */
+    private static final long SESSION_TTL_MS = 20 * 60 * 1000L;
 
     @Resource
     private KingdeeProperties kingdeeProperties;
@@ -39,6 +53,10 @@ public class KingdeeService {
 
     @Resource
     private ObjectMapper objectMapper;
+
+    /** 缓存的登录会话 */
+    private volatile LoginResult cachedLogin;
+    private volatile long loginTime = 0L;
 
     /**
      * 金蝶 WebAPI 登录结果
@@ -62,9 +80,205 @@ public class KingdeeService {
     }
 
     /**
+     * 金蝶业务异常（响应体中的 Errors）
+     */
+    public static class KingdeeApiException extends RuntimeException {
+        public KingdeeApiException(String message) {
+            super(message);
+        }
+    }
+
+    /**
+     * 单据生成阶段异常：Save成功但Submit/Audit失败时携带已生成单号，供重试续传避免重复建单
+     */
+    public static class BillStageException extends KingdeeApiException {
+        private final transient String formId;
+        private final transient String billNo;
+
+        public BillStageException(String formId, String billNo, String message) {
+            super(message);
+            this.formId = formId;
+            this.billNo = billNo;
+        }
+
+        /** 单据FormId（PRD_ReturnMtrl退料单 / PRD_FeedMtrl补料单） */
+        public String getFormId() {
+            return formId;
+        }
+
+        /** 已保存的单号（Save阶段失败时为null） */
+        public String getBillNo() {
+            return billNo;
+        }
+    }
+
+    /**
+     * 生产订单信息（PRD_MO）
+     */
+    @Data
+    public static class MoInfo {
+        private Long id;                // FID
+        private String billNo;          // FBillNo
+        private String date;            // FDate
+        private String planFinishDate;  // FPlanFinishDate
+        private BigDecimal qty;         // FQty 计划数量
+        private BigDecimal rptFinishQty;// FRptFinishQty 已完工汇报数量
+        private String status;          // FStatus: 1计划 2计划确认 3下达 4开工 5完工 6结案 7结算
+        private String productCode;     // FMaterialId.FNumber
+        private String productName;     // FMaterialId.FName
+        private String prdOrgNumber;    // FPrdOrgId.FNumber
+    }
+
+    /**
+     * 用料清单行（PRD_PPBOM）
+     */
+    @Data
+    public static class PpbomRow {
+        private Long ppbomId;          // FID 用料清单表头内码（补/退料单上查关联用）
+        private String ppbomBillNo;    // FBillNo 用料清单编号
+        private String moBillNo;
+        private String materialCode;
+        private String materialName;
+        private String model;           // 规格型号
+        private BigDecimal needQty;     // FNeedQty2 应发数量
+        private BigDecimal pickedQty;   // FPickedQty 已领数量
+        private String unitNumber;      // FUnitID2.fnumber
+        private String unitName;        // FUnitID2.fname
+    }
+
+    /**
+     * 用料清单分录详情（View PRD_PPBOM，上查关联/工序/行号）
+     */
+    @Data
+    public static class PpbomEntryDetail {
+        private Long ppbomId;          // 表头FID
+        private String ppbomBillNo;
+        private String moBillNo;
+        private Long entryId;          // 分录内码（FPPBomEntryId/FEntrySrcEnteryId）
+        private Integer entrySeq;      // 分录行号（FEntrySrcEntrySeq）
+        private String materialNumber;
+        private Long operId;           // 工序内码（FOperId）
+    }
+
+    /**
+     * 即时库存批次行（STK_Inventory）
+     */
+    @Data
+    public static class StockRow {
+        private String materialCode;
+        private String stockOrgNumber;  // FStockOrgId.FNumber
+        private String lotNumber;       // FLot.FNumber 批次
+        private String stockNumber;     // FStockId.FNumber 仓库编码
+        private String stockName;       // FStockId.FName 仓库名称
+        private Long locationId;        // FSTOCKLOCID 仓位值组合内码（未启用仓位管理时为0/null）
+        private BigDecimal baseQty;     // FBaseQty 基本单位数量
+    }
+
+    /**
+     * 生产订单明细信息（View PRD_MO，用于退料单 FMOEntryId/FMOEntrySeq/车间等）
+     */
+    @Data
+    public static class MoEntryDetail {
+        private Long moId;              // 单据FID
+        private String prdOrgNumber;    // 生产组织
+        private Long entryId;           // TreeEntity[0].Id
+        private Integer entrySeq;       // TreeEntity[0].Seq
+        private String productMaterialNumber; // 产品物料编码
+        private String workshopNumber;  // 车间编码
+    }
+
+    /**
+     * 生产退料单生成结果
+     */
+    @Data
+    public static class ReturnOrderResult {
+        private String billNo;
+        private Long id;
+    }
+
+    /**
+     * 退料单分录参数（对应已验证的 PRD_ReturnMtrl FEntity 结构）
+     */
+    @Data
+    public static class ReturnOrderEntry {
+        private String materialNumber;
+        private String unitNumber;
+        private BigDecimal qty;
+        private Integer returnType;     // 1良品 2不良品 3报废
+        private String stockNumber;
+        private String lotNumber;
+        private String moBillNo;
+        private Long moId;
+        private Long moEntryId;
+        private Integer moEntrySeq;
+        private String productMaterialNumber;
+        private String workshopNumber;
+        private Long ppbomId;           // 用料清单表头FID（上查关联）
+        private String ppbomBillNo;
+        private Long ppbomEntryId;      // 用料清单分录内码
+        private Integer ppbomEntrySeq;
+        private Long locationId;        // 仓位值组合内码（启用仓位管理的仓库必传，FStockLocId）
+    }
+
+    /**
+     * 补料单分录参数（对应已验证的 PRD_FeedMtrl FEntity 结构）
+     */
+    @Data
+    public static class FeedOrderEntry {
+        private String materialNumber;
+        private String unitNumber;
+        private BigDecimal qty;
+        private String stockNumber;
+        private String lotNumber;
+        private String moBillNo;
+        private Long moId;
+        private Long moEntryId;
+        private Integer moEntrySeq;
+        private String productMaterialNumber;
+        private String workshopNumber;  // 分录车间（FEntryWorkShopId）
+        private Long ppbomId;           // 用料清单表头FID（FEntrySrcInterId/Link）
+        private String ppbomBillNo;
+        private Long ppbomEntryId;      // 用料清单分录内码（FPPBomEntryId/FEntrySrcEnteryId）
+        private Integer ppbomEntrySeq;
+        private Long operId;            // 工序内码（FOperId，可空）
+        private Long locationId;        // 仓位值组合内码（启用仓位管理的仓库必传，FStockLocId）
+    }
+
+    // ==================================================================
+    // 会话管理
+    // ==================================================================
+
+    /**
+     * 获取（缓存的）登录会话，过期或未登录时重新登录
+     */
+    public LoginResult getSession() {
+        LoginResult login = cachedLogin;
+        if (login == null || System.currentTimeMillis() - loginTime > SESSION_TTL_MS) {
+            synchronized (this) {
+                if (cachedLogin == null || System.currentTimeMillis() - loginTime > SESSION_TTL_MS) {
+                    cachedLogin = doLogin();
+                    loginTime = System.currentTimeMillis();
+                }
+                login = cachedLogin;
+            }
+        }
+        return login;
+    }
+
+    /** 失效缓存会话（下次调用重新登录） */
+    private void invalidateSession() {
+        cachedLogin = null;
+        loginTime = 0L;
+    }
+
+    /**
      * 登录金蝶，返回 sessionId 信息
      */
     public LoginResult login() {
+        return doLogin();
+    }
+
+    private LoginResult doLogin() {
         String url = kingdeeProperties.getBaseUrl() + LOGIN_PATH;
 
         Map<String, Object> body = new HashMap<>();
@@ -125,6 +339,40 @@ public class KingdeeService {
     }
 
     /**
+     * 带会话的 POST 调用；HTTP 异常时失效会话并重试一次
+     */
+    private String postWithSession(String path, Object body) {
+        String url = kingdeeProperties.getBaseUrl() + path;
+        try {
+            return doExchange(url, body);
+        } catch (KingdeeApiException e) {
+            // 业务错误：直接抛出，无需重试
+            throw e;
+        } catch (Exception e) {
+            log.warn("[Kingdee] 调用失败({})，失效会话后重试一次: {}", path, e.getMessage());
+            invalidateSession();
+            return doExchange(url, body);
+        }
+    }
+
+    private String doExchange(String url, Object body) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set(HttpHeaders.COOKIE, getSession().toCookieHeader());
+
+        HttpEntity<Object> entity = new HttpEntity<>(body, headers);
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
+        if (!response.getStatusCode().is2xxSuccessful()) {
+            throw new RuntimeException("金蝶调用失败：HTTP " + response.getStatusCode());
+        }
+        return response.getBody();
+    }
+
+    // ==================================================================
+    // 原有：备料明细同步（PRD_PPBOM）
+    // ==================================================================
+
+    /**
      * 调用 ExecuteBillQuery 查询生产用料清单（PRD_PPBOM）
      * @param pcode 任务单号（mes_dwd_productOrder.pcode → FMOBillNO）
      * @param materialid 物料编码（mes_dwd_productOrder.materialid → FMaterialID.fnumber）
@@ -176,34 +424,7 @@ public class KingdeeService {
             throw new RuntimeException("解析金蝶 ExecuteBillQuery 响应失败: " + e.getMessage(), e);
         }
 
-        JsonNode rowsNode = null;
-        // 形式 1: 直接是数组 [[...], [...]]
-        if (root.isArray()) {
-            rowsNode = root;
-        }
-        // 形式 2: { "value": [[...]] }
-        else if (root.has("value") && root.get("value").isArray()) {
-            rowsNode = root.get("value");
-        }
-        // 形式 3: { "Result": [[...]] }
-        else if (root.has("Result") && root.get("Result").isArray()) {
-            rowsNode = root.get("Result");
-        }
-        // 形式 4: 错误响应 { "Result": { "ResponseStatus": { "Errors": [...] } } }
-        else if (root.has("Result") && root.get("Result").isObject()) {
-            JsonNode status = root.get("Result").get("ResponseStatus");
-            if (status != null && status.has("Errors")) {
-                StringBuilder errMsg = new StringBuilder();
-                for (JsonNode err : status.get("Errors")) {
-                    if (errMsg.length() > 0) errMsg.append("; ");
-                    errMsg.append(err.has("Message") ? err.get("Message").asText() : err.toString());
-                }
-                throw new RuntimeException("金蝶查询返回错误: " + errMsg);
-            }
-            throw new RuntimeException("金蝶查询响应结构无法识别: " + truncate(responseBody));
-        } else {
-            throw new RuntimeException("金蝶查询响应格式无法识别: " + truncate(responseBody));
-        }
+        JsonNode rowsNode = extractRows(root, responseBody);
 
         for (JsonNode row : rowsNode) {
             if (!row.isArray() || row.size() < 7) continue;
@@ -231,6 +452,620 @@ public class KingdeeService {
         return result;
     }
 
+    // ==================================================================
+    // 补退料：通用查询与单据操作
+    // ==================================================================
+
+    /**
+     * 通用 ExecuteBillQuery；返回行数组
+     */
+    private List<JsonNode> executeBillQuery(String formId, String fieldKeys, String filterString,
+                                            String orderString, int limit) {
+        Map<String, Object> parameters = new HashMap<>();
+        parameters.put("FormId", formId);
+        parameters.put("FieldKeys", fieldKeys);
+        parameters.put("FilterString", filterString);
+        parameters.put("OrderString", orderString == null ? "" : orderString);
+        parameters.put("TopRowCount", 0);
+        parameters.put("StartRow", 0);
+        parameters.put("Limit", limit);
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("format", "1");
+        body.put("useragent", "ApiClient");
+        body.put("rid", "356831840");
+        body.put("parameters", Collections.singletonList(parameters));
+        body.put("timestamp", "2022-01-04 13:30:213");
+        body.put("v", "1.0");
+
+        String responseBody = postWithSession(BILL_QUERY_PATH, body);
+        log.info("[Kingdee] ExecuteBillQuery({}) 响应: {}", formId, truncate(responseBody));
+
+        JsonNode root;
+        try {
+            root = objectMapper.readTree(responseBody);
+        } catch (Exception e) {
+            throw new KingdeeApiException("解析金蝶查询响应失败: " + e.getMessage());
+        }
+        JsonNode rows = extractRows(root, responseBody);
+        List<JsonNode> list = new ArrayList<>();
+        rows.forEach(list::add);
+        return list;
+    }
+
+    /** 构造 'a','b','c' 形式的SQL IN列表 */
+    private String inList(List<String> values) {
+        StringBuilder sb = new StringBuilder();
+        for (String v : values) {
+            if (sb.length() > 0) sb.append(',');
+            sb.append('\'').append(v.replace("'", "''")).append('\'');
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 接口1：按单号查询生产订单（已审核 FDocumentStatus='C'）
+     */
+    public MoInfo queryMoByBillNo(String orderCode) {
+        List<JsonNode> rows = executeBillQuery("PRD_MO",
+                "FBillNo,FDate,FPlanFinishDate,FRptFinishQty,FQty,FStatus,FMaterialId.FNumber,FMaterialId.FName,FPrdOrgId.FNumber,FID",
+                "FBillNo='" + orderCode.replace("'", "''") + "' and FDocumentStatus='C'",
+                "", 5);
+        if (rows.isEmpty()) return null;
+        JsonNode row = rows.get(0);
+        MoInfo info = new MoInfo();
+        info.setBillNo(textOf(row.get(0)));
+        info.setDate(textOf(row.get(1)));
+        info.setPlanFinishDate(textOf(row.get(2)));
+        info.setRptFinishQty(decimalOf(row.get(3)));
+        info.setQty(decimalOf(row.get(4)));
+        info.setStatus(textOf(row.get(5)));
+        info.setProductCode(textOf(row.get(6)));
+        info.setProductName(textOf(row.get(7)));
+        info.setPrdOrgNumber(textOf(row.get(8)));
+        info.setId(longOf(row.get(9)));
+        return info;
+    }
+
+    /**
+     * 接口2：查询订单用料清单（应发/已领）；支持多订单
+     * <p>返回含 FID/FBillNo（补/退料单上查关联用料清单所需）。</p>
+     */
+    public List<PpbomRow> queryPpbom(List<String> orderCodes) {
+        List<PpbomRow> result = new ArrayList<>();
+        if (orderCodes == null || orderCodes.isEmpty()) return result;
+        List<JsonNode> rows = executeBillQuery("PRD_PPBOM",
+                "FId,FBillNo,FMOBillNO,FMaterialID2.fnumber,FMaterialID2.fname,FMaterialModel1,FNeedQty2,FUnitID2.fnumber,FUnitID2.fname,FPickedQty",
+                "FMOBillNO in (" + inList(orderCodes) + ")", "", 1000);
+        for (JsonNode row : rows) {
+            if (!row.isArray() || row.size() < 10) continue;
+            PpbomRow r = new PpbomRow();
+            r.setPpbomId(longOf(row.get(0)));
+            r.setPpbomBillNo(textOf(row.get(1)));
+            r.setMoBillNo(textOf(row.get(2)));
+            r.setMaterialCode(textOf(row.get(3)));
+            r.setMaterialName(textOf(row.get(4)));
+            r.setModel(textOf(row.get(5)));
+            r.setNeedQty(decimalOf(row.get(6)));
+            r.setUnitNumber(textOf(row.get(7)));
+            r.setUnitName(textOf(row.get(8)));
+            r.setPickedQty(decimalOf(row.get(9)));
+            result.add(r);
+        }
+        return result;
+    }
+
+    /**
+     * M3：查询物料即时库存批次（FBaseQty>0，按 FUpdateTime 升序 = FIFO）；支持多物料
+     * <p>FSTOCKLOCID 为仓位值组合内码（启用仓位管理的仓库必传给单据的 FStockLocId）。</p>
+     */
+    public List<StockRow> queryStock(List<String> materialCodes) {
+        List<StockRow> result = new ArrayList<>();
+        if (materialCodes == null || materialCodes.isEmpty()) return result;
+        List<JsonNode> rows = executeBillQuery("STK_Inventory",
+                "FMaterialId.FNumber,FStockOrgId.FNumber,FLot.FNumber,FStockId.FNumber,FStockId.FName,FSTOCKLOCID,FBaseQty",
+                "FMaterialId.FNumber in (" + inList(materialCodes) + ") and FBaseQty>0",
+                "FUpdateTime asc", 2000);
+        for (JsonNode row : rows) {
+            if (!row.isArray() || row.size() < 7) continue;
+            StockRow r = new StockRow();
+            r.setMaterialCode(textOf(row.get(0)));
+            r.setStockOrgNumber(textOf(row.get(1)));
+            r.setLotNumber(textOf(row.get(2)));
+            r.setStockNumber(textOf(row.get(3)));
+            r.setStockName(textOf(row.get(4)));
+            r.setLocationId(longOf(row.get(5)));
+            r.setBaseQty(decimalOf(row.get(6)));
+            result.add(r);
+        }
+        return result;
+    }
+
+    /**
+     * M6：View PRD_MO 获取退料单所需分录信息（TreeEntity首行：entryId/seq/产品/车间）
+     */
+    public MoEntryDetail viewMoEntry(String orderCode) {
+        Map<String, Object> body = baseRequestBody();
+        Map<String, Object> numberParam = new HashMap<>();
+        numberParam.put("Number", orderCode);
+        body.put("parameters", Arrays.asList("PRD_MO", numberParam));
+
+        String responseBody = postWithSession(VIEW_PATH, body);
+        log.info("[Kingdee] View(PRD_MO) 响应: {}", truncate(responseBody, 2000));
+
+        try {
+            JsonNode root = objectMapper.readTree(responseBody);
+            JsonNode result = root.path("Result").path("Result");
+            if (result.isMissingNode() || result.isNull()) {
+                throw new KingdeeApiException("加载生产订单失败：响应结构异常 " + truncate(responseBody));
+            }
+            MoEntryDetail detail = new MoEntryDetail();
+            detail.setMoId(longOf(result.path("Id")));
+            detail.setPrdOrgNumber(result.path("PrdOrgId").path("Number").asText(null));
+            JsonNode tree = result.path("TreeEntity");
+            if (tree.isArray() && tree.size() > 0) {
+                JsonNode first = tree.get(0);
+                detail.setEntryId(longOf(first.path("Id")));
+                detail.setEntrySeq(first.path("Seq").isNumber() ? first.path("Seq").asInt() : null);
+                detail.setProductMaterialNumber(first.path("MaterialId").path("Number").asText(null));
+                detail.setWorkshopNumber(first.path("WorkShopID").path("Number").asText(null));
+            }
+            return detail;
+        } catch (KingdeeApiException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new KingdeeApiException("解析生产订单View响应失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * M6：View PRD_PPBOM 获取用料清单分录详情（分录内码/行号/工序），上查关联所需
+     * <p>BillQuery 无法输出分录主键，须通过 View 的 PPBomEntry 集合获取。</p>
+     */
+    public List<PpbomEntryDetail> viewPpbom(String ppbomBillNo) {
+        Map<String, Object> body = baseRequestBody();
+        Map<String, Object> numberParam = new HashMap<>();
+        numberParam.put("Number", ppbomBillNo);
+        body.put("parameters", Arrays.asList("PRD_PPBOM", numberParam));
+
+        String responseBody = postWithSession(VIEW_PATH, body);
+        log.info("[Kingdee] View(PRD_PPBOM,{}) 响应: {}", ppbomBillNo, truncate(responseBody, 2000));
+
+        try {
+            JsonNode root = objectMapper.readTree(responseBody);
+            JsonNode result = root.path("Result").path("Result");
+            if (result.isMissingNode() || result.isNull()) {
+                throw new KingdeeApiException("加载用料清单失败：响应结构异常 " + truncate(responseBody));
+            }
+            long ppbomId = longOf(result.path("Id"));
+            String billNo = result.path("BillNo").asText(null);
+            // 金蝶实际键名为 MOBillNO（全大写MO+NO），与BillQuery的FMOBillNO对应
+            String moBillNo = result.path("MOBillNO").asText(null);
+
+            List<PpbomEntryDetail> details = new ArrayList<>();
+            JsonNode entries = result.path("PPBomEntry");
+            if (entries.isArray()) {
+                for (JsonNode e : entries) {
+                    PpbomEntryDetail d = new PpbomEntryDetail();
+                    d.setPpbomId(ppbomId);
+                    d.setPpbomBillNo(billNo);
+                    d.setMoBillNo(moBillNo);
+                    d.setEntryId(longOf(e.path("Id")));
+                    d.setEntrySeq(e.path("Seq").isNumber() ? e.path("Seq").asInt() : null);
+                    d.setMaterialNumber(e.path("MaterialID").path("Number").asText(null));
+                    // 金蝶实际键名为 OperID（大写D），值为工序内码
+                    d.setOperId(longOf(e.path("OperID")));
+                    details.add(d);
+                }
+            }
+            return details;
+        } catch (KingdeeApiException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new KingdeeApiException("解析用料清单View响应失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * M6：View 单据审核状态（DocumentStatus：A创建 B审核中 C已审核 D重新审核），
+     * 用于重试时判断已生成单据是否已完成，避免重复建单。查询失败返回null。
+     */
+    public String viewBillDocumentStatus(String formId, String billNo) {
+        try {
+            Map<String, Object> body = baseRequestBody();
+            Map<String, Object> numberParam = new HashMap<>();
+            numberParam.put("Number", billNo);
+            body.put("parameters", Arrays.asList(formId, numberParam));
+            String responseBody = postWithSession(VIEW_PATH, body);
+            JsonNode root = objectMapper.readTree(responseBody);
+            JsonNode result = root.path("Result").path("Result");
+            if (result.isMissingNode() || result.isNull()) return null;
+            String status = result.path("DocumentStatus").asText(null);
+            log.info("[Kingdee] View({},{}) DocumentStatus={}", formId, billNo, status);
+            return status;
+        } catch (Exception e) {
+            log.warn("[Kingdee] View({},{}) 状态查询失败: {}", formId, billNo, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * M6：生成生产退料单（Save → Submit → Audit），返回单号
+     * <p>分录通过 FSrcBillType/FPPBomEntryId/FPPBomBillNo/FEntity_Link 建立与用料清单(PRD_PPBOM)的关联，
+     * 保证金蝶中可上查到生产用料清单。</p>
+     * <p>调用前必须确保各分录的 moEntry/ppbom 信息已通过 {@link #viewMoEntry} / {@link #queryPpbom} / {@link #viewPpbom} 获取。</p>
+     * @param resumeBillNo 续传单号：之前Save成功但Submit/Audit失败的单号，非空时跳过Save直接续传
+     */
+    public ReturnOrderResult createReturnOrder(String date, String stockOrgNumber, String prdOrgNumber,
+                                                String description, List<ReturnOrderEntry> entries,
+                                                String resumeBillNo) {
+        String billNo = (resumeBillNo == null || resumeBillNo.isEmpty()) ? null : resumeBillNo;
+
+        // 1. Save（已有续传单号时跳过，避免重复建单）
+        if (billNo == null) {
+            List<Map<String, Object>> entityList = new ArrayList<>();
+            for (ReturnOrderEntry e : entries) {
+                Map<String, Object> entry = new LinkedHashMap<>();
+                entry.put("FMaterialId", Collections.singletonMap("FNumber", e.getMaterialNumber()));
+                entry.put("FUnitID", Collections.singletonMap("FNumber", e.getUnitNumber()));
+                entry.put("FAPPQty", e.getQty());
+                entry.put("FQty", e.getQty());
+                entry.put("FReturnType", e.getReturnType());
+                entry.put("FStockId", Collections.singletonMap("FNumber", e.getStockNumber()));
+                entry.put("FLot", Collections.singletonMap("FNumber", e.getLotNumber()));
+                entry.put("FStockStatusId", Collections.singletonMap("FNumber", "KCZT01_SYS"));
+                entry.put("FOwnerTypeId", "BD_OwnerOrg");
+                entry.put("FOwnerId", Collections.singletonMap("FNumber", stockOrgNumber));
+                entry.put("FKeeperTypeId", "BD_KeeperOrg");
+                entry.put("FKeeperId", Collections.singletonMap("FNumber", stockOrgNumber));
+                entry.put("FMOBillNo", e.getMoBillNo());
+                entry.put("FMOId", e.getMoId());
+                entry.put("FMOEntryId", e.getMoEntryId());
+                entry.put("FMOEntrySeq", e.getMoEntrySeq());
+                // 用料清单关联（上查）：源单类型/编号 + 分录内码 + 转换规则Link
+                entry.put("FSrcBillType", "PRD_PPBOM");
+                entry.put("FSrcBillNo", e.getPpbomBillNo());
+                entry.put("FPPBomEntryId", e.getPpbomEntryId());
+                entry.put("FPPBomBillNo", e.getPpbomBillNo());
+                if (e.getPpbomId() != null && e.getPpbomEntryId() != null) {
+                    Map<String, Object> link = new LinkedHashMap<>();
+                    link.put("FEntity_Link_FRuleId", "PRD_PPBOM2RETURNMTRL");
+                    link.put("FEntity_Link_FSBillId", e.getPpbomId());
+                    link.put("FEntity_Link_FSId", e.getPpbomEntryId());
+                    link.put("FEntity_Link_FSTableName", "T_PRD_PPBOMENTRY");
+                    link.put("FEntity_Link_FBaseQtyOld", e.getQty());
+                    link.put("FEntity_Link_FBaseQty", e.getQty());
+                    entry.put("FEntity_Link", Collections.singletonList(link));
+                }
+                entry.put("FParentOwnerId", Collections.singletonMap("FNumber", stockOrgNumber));
+                entry.put("FParentMaterialId", Collections.singletonMap("FNumber", e.getProductMaterialNumber()));
+                entry.put("FWorkShopId1", Collections.singletonMap("FNumber", e.getWorkshopNumber()));
+                // 仓位（启用仓位管理的仓库必录）：传仓位值组合内码（裸数字）
+                if (e.getLocationId() != null && e.getLocationId() > 0) {
+                    entry.put("FStockLocId", e.getLocationId());
+                }
+                entityList.add(entry);
+            }
+
+            Map<String, Object> model = new LinkedHashMap<>();
+            model.put("FBillType", Collections.singletonMap("FNumber", "SCTLD01_SYS"));
+            model.put("FDate", date);
+            model.put("FStockOrgId", Collections.singletonMap("FNumber", stockOrgNumber));
+            model.put("FPrdOrgId", Collections.singletonMap("FNumber", prdOrgNumber));
+            model.put("FOwnerTypeId", "BD_OwnerOrg");
+            model.put("FOwnerId", Collections.singletonMap("FNumber", stockOrgNumber));
+            model.put("FDescription", description);
+            model.put("FEntity", entityList);
+
+            Map<String, Object> packet = new LinkedHashMap<>();
+            packet.put("NeedUpDateFields", Collections.emptyList());
+            packet.put("NeedReturnFields", Collections.singletonList("FBillNo"));
+            packet.put("IsDeleteEntry", true);
+            packet.put("Model", model);
+
+            String packetJson;
+            try {
+                packetJson = objectMapper.writeValueAsString(packet);
+            } catch (Exception e) {
+                throw new KingdeeApiException("序列化退料单报文失败: " + e.getMessage());
+            }
+
+            Map<String, Object> saveBody = baseRequestBody();
+            saveBody.put("parameters", Arrays.asList("PRD_ReturnMtrl", packetJson));
+            String saveResp = postWithSession(SAVE_PATH, saveBody);
+            log.info("[Kingdee] Save(PRD_ReturnMtrl) 响应: {}", truncate(saveResp, 2000));
+
+            JsonNode saveResult = parseOperationResult(saveResp, "退料单保存");
+            billNo = saveResult.path("Number").asText(null);
+            if (billNo == null || billNo.isEmpty()) {
+                throw new KingdeeApiException("退料单保存成功但未返回单号: " + truncate(saveResp));
+            }
+        }
+
+        Long billId = null;
+
+        // 2. Submit（失败时携带已保存单号抛出，供重试续传）
+        try {
+            Map<String, Object> submitBody = baseRequestBody();
+            submitBody.put("parameters", Arrays.asList("PRD_ReturnMtrl",
+                    Collections.singletonMap("Numbers", Collections.singletonList(billNo))));
+            String submitResp = postWithSession(SUBMIT_PATH, submitBody);
+            log.info("[Kingdee] Submit(PRD_ReturnMtrl,{}) 响应: {}", billNo, truncate(submitResp));
+            parseOperationResult(submitResp, "退料单提交");
+        } catch (KingdeeApiException e) {
+            if (e instanceof BillStageException) throw e;
+            throw new BillStageException("PRD_ReturnMtrl", billNo, e.getMessage());
+        }
+
+        // 3. Audit
+        try {
+            Map<String, Object> auditBody = baseRequestBody();
+            auditBody.put("parameters", Arrays.asList("PRD_ReturnMtrl",
+                    Collections.singletonMap("Numbers", Collections.singletonList(billNo))));
+            String auditResp = postWithSession(AUDIT_PATH, auditBody);
+            log.info("[Kingdee] Audit(PRD_ReturnMtrl,{}) 响应: {}", billNo, truncate(auditResp));
+            parseOperationResult(auditResp, "退料单审核");
+        } catch (KingdeeApiException e) {
+            if (e instanceof BillStageException) throw e;
+            throw new BillStageException("PRD_ReturnMtrl", billNo, e.getMessage());
+        }
+
+        ReturnOrderResult result = new ReturnOrderResult();
+        result.setBillNo(billNo);
+        result.setId(billId);
+        return result;
+    }
+
+    /**
+     * M6：生成生产补料单（PRD_FeedMtrl，单据类型SCBLD01_SYS，Save → Submit → Audit），返回单号
+     * <p>分录通过 FEntity_Link（转换规则PRDPPBomTrans2FeedBill，与退料单同机制）+ FEntrySrc*（源单内码/类型/编号/分录/行号）
+     * + FPPBomEntryId/FPPBomBillNo + FMo* + FOperId 建立与用料清单(PRD_PPBOM)的关联，保证金蝶中可上查到生产用料清单。</p>
+     * @param workshopNumber 表头车间（FWorkShopId）
+     * @param stockNumber    表头发料仓库（FStockId0）
+     * @param applicantName  补料申请人（分录备注 FEntrtyDescription）
+     * @param resumeBillNo   续传单号：之前Save成功但Submit/Audit失败的单号，非空时跳过Save直接续传
+     */
+    public ReturnOrderResult createFeedOrder(String date, String stockOrgNumber, String prdOrgNumber,
+                                             String workshopNumber, String stockNumber, String description,
+                                             String applicantName, List<FeedOrderEntry> entries,
+                                             String resumeBillNo) {
+        String billNo = (resumeBillNo == null || resumeBillNo.isEmpty()) ? null : resumeBillNo;
+
+        // 1. Save（已有续传单号时跳过，避免重复建单）
+        if (billNo == null) {
+            List<Map<String, Object>> entityList = new ArrayList<>();
+            for (FeedOrderEntry e : entries) {
+                BigDecimal qty = e.getQty() == null ? BigDecimal.ZERO : e.getQty();
+                Map<String, Object> entry = new LinkedHashMap<>();
+                entry.put("FParentMaterialId", Collections.singletonMap("FNumber", e.getProductMaterialNumber()));
+                entry.put("FConsome", "0");
+                entry.put("FReserveType", "1");
+                entry.put("FBaseStockActualQty", qty);
+                entry.put("FMaterialId", Collections.singletonMap("FNumber", e.getMaterialNumber()));
+                entry.put("FUnitID", Collections.singletonMap("FNumber", e.getUnitNumber()));
+                entry.put("FAppQty", qty);
+                entry.put("FActualQty", qty);
+                entry.put("FEntryVmiBusiness", false);
+                entry.put("FScrapQty", 0.0);
+                entry.put("FOptQueue", "0");
+                entry.put("FStockId", Collections.singletonMap("FNumber", e.getStockNumber()));
+                // 仓位（启用仓位管理的仓库必录）：传仓位值组合内码（裸数字）
+                if (e.getLocationId() != null && e.getLocationId() > 0) {
+                    entry.put("FStockLocId", e.getLocationId());
+                }
+                entry.put("FOptPlanBillId", 0);
+                entry.put("FOptDetailId", 0);
+                entry.put("FLot", Collections.singletonMap("FNumber", e.getLotNumber()));
+                entry.put("FTransRetId", 0);
+                entry.put("FTransRetEntryId", 0);
+                entry.put("FTransRetEntrySeq", 0);
+                entry.put("FFeedReasonId", Collections.singletonMap("FNumber", "BLYY01_SYS"));
+                entry.put("FIsOverLegalOrg", false);
+                entry.put("FCheckReturnMtrl", false);
+                entry.put("FEntrtyDescription", "补料申请人：" + applicantName);
+                entry.put("FStockStatusId", Collections.singletonMap("FNumber", "KCZT01_SYS"));
+                entry.put("FMoBillNo", e.getMoBillNo());
+                entry.put("FMoEntryId", e.getMoEntryId());
+                entry.put("FPPBomEntryId", e.getPpbomEntryId());
+                if (e.getOperId() != null) {
+                    entry.put("FOperId", e.getOperId());
+                }
+                entry.put("FOwnerTypeId", "BD_OwnerOrg");
+                entry.put("FStockAppQty", qty);
+                entry.put("FStockActualQty", qty);
+                entry.put("FSecActualQty", 0.0);
+                entry.put("FMoId", e.getMoId());
+                entry.put("FMoEntrySeq", e.getMoEntrySeq());
+                entry.put("FBaseAppQty", qty);
+                entry.put("FStockScrapQty", 0.0);
+                entry.put("FSecScrapQty", 0.0);
+                entry.put("FBaseScrapQty", 0.0);
+                entry.put("FPPBomBillNo", e.getPpbomBillNo());
+                entry.put("FBaseUnitId", Collections.singletonMap("FNumber", e.getUnitNumber()));
+                entry.put("FStockUnitId", Collections.singletonMap("FNumber", e.getUnitNumber()));
+                entry.put("FEntryWorkShopId", Collections.singletonMap("FNumber", e.getWorkshopNumber()));
+                entry.put("FBaseActualQty", qty);
+                entry.put("FKeeperTypeId", "BD_KeeperOrg");
+                entry.put("FKeeperId", Collections.singletonMap("FNumber", stockOrgNumber));
+                entry.put("FOwnerId", Collections.singletonMap("FNumber", stockOrgNumber));
+                // 用料清单关联（上查）：源单内码/类型/分录/编号/行号
+                entry.put("FEntrySrcInterId", e.getPpbomId());
+                entry.put("FEntrySrcBillType", "PRD_PPBOM");
+                entry.put("FEntrySrcEnteryId", e.getPpbomEntryId());
+                entry.put("FEntrySrcBillNo", e.getPpbomBillNo());
+                entry.put("FPrice", 0.0);
+                entry.put("FAmount", 0.0);
+                entry.put("FParentOwnerTypeId", "BD_OwnerOrg");
+                entry.put("FParentOwnerId", Collections.singletonMap("FNumber", stockOrgNumber));
+                entry.put("FEntrySrcEntrySeq", e.getPpbomEntrySeq());
+                entry.put("FSrcBizInterId", 0);
+                entry.put("FSrcBizEntryId", 0);
+                entry.put("FSrcBizEntrySeq", 0);
+                // 用料清单关联（上查）：转换规则Link，与退料单同机制（规则ID为用料清单→补料单），
+                // 控制字段用于审核时反写补料数量到用料清单
+                if (e.getPpbomId() != null && e.getPpbomEntryId() != null) {
+                    Map<String, Object> link = new LinkedHashMap<>();
+                    link.put("FEntity_Link_FRuleId", "PRDPPBomTrans2FeedBill");
+                    link.put("FEntity_Link_FSTableName", "T_PRD_PPBOMENTRY");
+                    link.put("FEntity_Link_FSBillId", e.getPpbomId());
+                    link.put("FEntity_Link_FSId", e.getPpbomEntryId());
+                    link.put("FEntity_Link_FBaseActualQtyOld", qty);
+                    link.put("FEntity_Link_FBaseActualQty", qty);
+                    link.put("FEntity_Link_FBaseScrapQtyOld", 0.0);
+                    link.put("FEntity_Link_FBaseScrapQty", 0.0);
+                    entry.put("FEntity_Link", Collections.singletonList(link));
+                }
+                entityList.add(entry);
+            }
+
+            Map<String, Object> model = new LinkedHashMap<>();
+            model.put("FID", 0);
+            model.put("FBillType", Collections.singletonMap("FNumber", "SCBLD01_SYS"));
+            model.put("FDate", date);
+            model.put("FStockOrgId", Collections.singletonMap("FNumber", stockOrgNumber));
+            model.put("FStockId0", Collections.singletonMap("FNumber", stockNumber));
+            model.put("FPrdOrgId", Collections.singletonMap("FNumber", prdOrgNumber));
+            model.put("FWorkShopId", Collections.singletonMap("FNumber", workshopNumber));
+            model.put("FOwnerTypeId0", "BD_OwnerOrg");
+            model.put("FCurrId", Collections.singletonMap("FNumber", "PRE001"));
+            model.put("FIsCrossTrade", false);
+            model.put("FVmiBusiness", false);
+            model.put("FIsOwnerTInclOrg", false);
+            model.put("FDescription", description);
+            model.put("FEntity", entityList);
+
+            Map<String, Object> packet = new LinkedHashMap<>();
+            packet.put("NeedUpDateFields", Collections.emptyList());
+            packet.put("NeedReturnFields", Collections.emptyList());
+            packet.put("IsDeleteEntry", "true");
+            packet.put("SubSystemId", "");
+            packet.put("IsVerifyBaseDataField", "false");
+            packet.put("IsEntryBatchFill", "true");
+            packet.put("ValidateFlag", "true");
+            packet.put("NumberSearch", "true");
+            packet.put("IsAutoAdjustField", "true");
+            packet.put("InterationFlags", "");
+            packet.put("IgnoreInterationFlag", "");
+            packet.put("IsControlPrecision", "false");
+            packet.put("ValidateRepeatJson", "true");
+            packet.put("Model", model);
+
+            String packetJson;
+            try {
+                packetJson = objectMapper.writeValueAsString(packet);
+            } catch (Exception ex) {
+                throw new KingdeeApiException("序列化补料单报文失败: " + ex.getMessage());
+            }
+
+            Map<String, Object> saveBody = baseRequestBody();
+            saveBody.put("parameters", Arrays.asList("PRD_FeedMtrl", packetJson));
+            String saveResp = postWithSession(SAVE_PATH, saveBody);
+            log.info("[Kingdee] Save(PRD_FeedMtrl) 响应: {}", truncate(saveResp, 2000));
+
+            JsonNode saveResult = parseOperationResult(saveResp, "补料单保存");
+            billNo = saveResult.path("Number").asText(null);
+            if (billNo == null || billNo.isEmpty()) {
+                throw new KingdeeApiException("补料单保存成功但未返回单号: " + truncate(saveResp));
+            }
+        }
+
+        // 2. Submit（失败时携带已保存单号抛出，供重试续传）
+        try {
+            Map<String, Object> submitBody = baseRequestBody();
+            submitBody.put("parameters", Arrays.asList("PRD_FeedMtrl",
+                    Collections.singletonMap("Numbers", Collections.singletonList(billNo))));
+            String submitResp = postWithSession(SUBMIT_PATH, submitBody);
+            log.info("[Kingdee] Submit(PRD_FeedMtrl,{}) 响应: {}", billNo, truncate(submitResp));
+            parseOperationResult(submitResp, "补料单提交");
+        } catch (KingdeeApiException e) {
+            if (e instanceof BillStageException) throw e;
+            throw new BillStageException("PRD_FeedMtrl", billNo, e.getMessage());
+        }
+
+        // 3. Audit
+        try {
+            Map<String, Object> auditBody = baseRequestBody();
+            auditBody.put("parameters", Arrays.asList("PRD_FeedMtrl",
+                    Collections.singletonMap("Numbers", Collections.singletonList(billNo))));
+            String auditResp = postWithSession(AUDIT_PATH, auditBody);
+            log.info("[Kingdee] Audit(PRD_FeedMtrl,{}) 响应: {}", billNo, truncate(auditResp));
+            parseOperationResult(auditResp, "补料单审核");
+        } catch (KingdeeApiException e) {
+            if (e instanceof BillStageException) throw e;
+            throw new BillStageException("PRD_FeedMtrl", billNo, e.getMessage());
+        }
+
+        ReturnOrderResult result = new ReturnOrderResult();
+        result.setBillNo(billNo);
+        return result;
+    }
+
+    /** 解析 Save/Submit/Audit 操作响应，业务失败时抛出异常 */
+    private JsonNode parseOperationResult(String responseBody, String operation) {
+        try {
+            JsonNode root = objectMapper.readTree(responseBody);
+            JsonNode result = root.path("Result");
+            JsonNode status = result.path("ResponseStatus");
+            boolean success = status.path("IsSuccess").asBoolean(false);
+            if (!success) {
+                throw new KingdeeApiException(operation + "失败: " + extractErrors(status, responseBody));
+            }
+            return result;
+        } catch (KingdeeApiException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new KingdeeApiException("解析" + operation + "响应失败: " + e.getMessage());
+        }
+    }
+
+    /** WebAPI 标准请求骨架 */
+    private Map<String, Object> baseRequestBody() {
+        Map<String, Object> body = new HashMap<>();
+        body.put("format", 1);
+        body.put("useragent", "ApiClient");
+        body.put("rid", "356831840");
+        body.put("timestamp", "2022-01-04 13:30:213");
+        body.put("v", "1.0");
+        return body;
+    }
+
+    // ==================================================================
+    // 通用解析工具
+    // ==================================================================
+
+    /** 兼容多种响应结构提取行数组，并识别错误响应 */
+    private JsonNode extractRows(JsonNode root, String responseBody) {
+        // 形式 1: 直接是数组 [[...], [...]]
+        if (root.isArray()) return root;
+        // 形式 2/3/4
+        if (root.has("Result")) {
+            JsonNode result = root.get("Result");
+            if (result.isArray()) return result;
+            if (result.isObject()) {
+                JsonNode status = result.path("ResponseStatus");
+                if (status.has("Errors") && status.get("Errors").isArray()
+                        && status.get("Errors").size() > 0) {
+                    throw new KingdeeApiException("金蝶查询返回错误: " + extractErrors(status, responseBody));
+                }
+            }
+        }
+        if (root.has("value") && root.get("value").isArray()) return root.get("value");
+        throw new KingdeeApiException("金蝶查询响应格式无法识别: " + truncate(responseBody));
+    }
+
+    private String extractErrors(JsonNode status, String responseBody) {
+        JsonNode errors = status.path("Errors");
+        StringBuilder errMsg = new StringBuilder();
+        if (errors.isArray()) {
+            for (JsonNode err : errors) {
+                if (errMsg.length() > 0) errMsg.append("; ");
+                errMsg.append(err.has("Message") ? err.get("Message").asText() : err.toString());
+            }
+        }
+        if (errMsg.length() == 0) errMsg.append(truncate(responseBody));
+        return errMsg.toString();
+    }
+
     private String textOf(JsonNode node) {
         if (node == null || node.isNull()) return null;
         String s = node.asText();
@@ -246,6 +1081,28 @@ public class KingdeeService {
             return (int) Math.round(Double.parseDouble(s));
         } catch (NumberFormatException e) {
             return 0;
+        }
+    }
+
+    private BigDecimal decimalOf(JsonNode node) {
+        if (node == null || node.isNull()) return BigDecimal.ZERO;
+        try {
+            if (node.isNumber()) return node.decimalValue();
+            String s = node.asText();
+            return (s == null || s.isEmpty()) ? BigDecimal.ZERO : new BigDecimal(s);
+        } catch (NumberFormatException e) {
+            return BigDecimal.ZERO;
+        }
+    }
+
+    private Long longOf(JsonNode node) {
+        if (node == null || node.isNull()) return null;
+        try {
+            if (node.isNumber()) return node.asLong();
+            String s = node.asText();
+            return (s == null || s.isEmpty()) ? null : Long.parseLong(s);
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 
@@ -266,7 +1123,11 @@ public class KingdeeService {
     }
 
     private String truncate(String s) {
+        return truncate(s, 500);
+    }
+
+    private String truncate(String s, int max) {
         if (s == null) return null;
-        return s.length() > 500 ? s.substring(0, 500) + "...(truncated)" : s;
+        return s.length() > max ? s.substring(0, max) + "...(truncated)" : s;
     }
 }

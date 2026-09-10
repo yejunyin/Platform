@@ -1,0 +1,1 @@
+{"format":1,"useragent":"ApiClient","rid":"q13","timestamp":"2026-09-09 14:24:00","v":"1.0","data":{"FormId":"STK_Inventory","FieldKeys":"FMaterialId.FNumber,FLot.FNumber,FStockId.FNumber,FStockId.FName,FStockOrgId.FNumber,FSTOCKLOCID,FBaseQty","FilterString":"FMaterialId.FNumber='6570007001' and FBaseQty>0","OrderString":"FUpdateTime asc","TopRowCount":10}}
