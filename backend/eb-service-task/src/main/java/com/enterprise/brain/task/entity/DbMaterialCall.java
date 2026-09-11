@@ -70,7 +70,7 @@ public class DbMaterialCall implements Serializable {
     @Schema(description = "状态: 10待质检审核 11已驳回 20批次匹配中 30退料单生成中 31退料单生成异常 40退料单已生成 41WMS申请异常 50WMS申请已生成 99已完成")
     private Integer status;
 
-    @Schema(description = "退料类型 1良品 2不良品 3报废")
+    @Schema(description = "退料类型: 审核通过时由后端取REASON_ID写入, 不再由审核端选择")
     private Integer returnType;
 
     @Schema(description = "驳回原因")

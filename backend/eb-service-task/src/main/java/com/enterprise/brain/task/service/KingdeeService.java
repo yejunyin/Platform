@@ -204,7 +204,7 @@ public class KingdeeService {
         private String materialNumber;
         private String unitNumber;
         private BigDecimal qty;
-        private Integer returnType;     // 1良品 2不良品 3报废
+        private Integer returnType;     // 退料类型, 取申请单REASON_ID(补料原因)
         private String stockNumber;
         private String lotNumber;
         private String moBillNo;

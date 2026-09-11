@@ -125,7 +125,7 @@ public class DBMaterialCallController {
     // ==================== 接口9：质检审核 ====================
 
     @PostMapping("/audit")
-    @Operation(summary = "质检审核", description = "驳回(必填原因)或通过(必选退料类型)触发FIFO匹配+金蝶退料单+WMS出库申请流水线；"
+    @Operation(summary = "质检审核", description = "驳回(必填原因)或通过(退料类型取申请单补料原因)触发FIFO匹配+金蝶退料单+WMS出库申请流水线；"
             + "库存不足且forceFlag=0时返回status=2部分匹配")
     public MaterialResult<?> audit(
             @Parameter(description = "操作人工号") @RequestParam(value = "username", required = false) String username,

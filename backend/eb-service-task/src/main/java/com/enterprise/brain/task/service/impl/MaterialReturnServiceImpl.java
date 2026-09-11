@@ -416,9 +416,10 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
         if (!Objects.equals(request.getAuditResult(), 1)) {
             throw new IllegalArgumentException("审核结果不合法（1通过 2驳回）");
         }
-        Integer returnType = request.getReturnTypeId();
-        if (returnType == null || returnType < 1 || returnType > 3) {
-            throw new IllegalArgumentException("审核通过时必须选择退料类型（1良品退料 2不良品退料 3报废退料）");
+        // 退料类型不再由审核端选择：取申请单发起人提交时选择的补料原因(REASON_ID)写入RETURN_TYPE
+        Integer returnType = call.getReasonId();
+        if (returnType == null) {
+            throw new IllegalArgumentException("申请单缺少补料原因，无法确定退料类型");
         }
         boolean force = Objects.equals(request.getForceFlag(), 1);
 
@@ -838,7 +839,8 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
             retEntry.setMaterialNumber(batch.getMaterialCode());
             retEntry.setUnitNumber(unitNumber);
             retEntry.setQty(batch.getQty());
-            retEntry.setReturnType(call.getReturnType());
+            // 退料类型依据申请单补料原因(REASON_ID)；历史单据缺原因时回退旧RETURN_TYPE
+            retEntry.setReturnType(call.getReasonId() != null ? call.getReasonId() : call.getReturnType());
             retEntry.setStockNumber(batch.getWarehouseCode());
             retEntry.setLotNumber(batch.getBatchNo());
             retEntry.setMoBillNo(item.getOrderCode());
@@ -1084,12 +1086,12 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
         dto.setApplicantName(call.getApplicantName());
         dto.setApplicantDept(call.getApplicantDept());
         dto.setQcStaffName(call.getQcStaffName());
+        dto.setReasonId(call.getReasonId());
         dto.setReasonText(call.getReasonText());
         dto.setErpOrderNo(call.getErpOrderNo());
         dto.setErpReplenishOrderNo(call.getErpReplenishOrderNo());
         dto.setWmsOrderNo(call.getWmsOrderNo());
         dto.setRejectReason(call.getRejectReason());
-        dto.setReturnType(call.getReturnType());
         dto.setErrorMsg(call.getErrorMsg());
         dto.setAuditTime(fmt(call.getAuditTime()));
         dto.setAuditBy(call.getAuditBy());

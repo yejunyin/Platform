@@ -30,7 +30,7 @@ public class MaterialAuditRequest implements Serializable {
     @Schema(description = "审核结果 1通过 2驳回")
     private Integer auditResult;
 
-    @Schema(description = "退料类型 1良品退料 2不良品退料 3报废退料（通过时必填）")
+    @Schema(description = "退料类型（已废弃，后端忽略；退料类型改由申请单补料原因决定）")
     private Integer returnTypeId;
 
     @Schema(description = "驳回原因（驳回时必填）")

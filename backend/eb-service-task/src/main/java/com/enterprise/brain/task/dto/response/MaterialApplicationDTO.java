@@ -36,6 +36,9 @@ public class MaterialApplicationDTO implements Serializable {
     @Schema(description = "质检员姓名")
     private String qcStaffName;
 
+    @Schema(description = "补料原因ID")
+    private Integer reasonId;
+
     @Schema(description = "补料原因")
     private String reasonText;
 
@@ -56,9 +59,6 @@ public class MaterialApplicationDTO implements Serializable {
 
     @Schema(description = "驳回原因")
     private String rejectReason;
-
-    @Schema(description = "退料类型 1良品 2不良品 3报废")
-    private Integer returnType;
 
     @Schema(description = "异常描述(状态31/41)")
     private String errorMsg;

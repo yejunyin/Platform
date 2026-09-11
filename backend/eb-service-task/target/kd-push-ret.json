@@ -1,8 +1,0 @@
-{
-  "format": 1,
-  "useragent": "ApiClient",
-  "rid": "push-01",
-  "timestamp": "2026-09-09 14:40:00",
-  "v": "1.0",
-  "parameters": ["PRD_PPBOM", "{\"RuleId\":\"PRD_PPBOM2RETURNMTRL\",\"Numbers\":[\"PPBOM00896056\"],\"IsEnableDefaultRule\":\"false\"}"]
-}
