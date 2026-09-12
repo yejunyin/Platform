@@ -62,7 +62,7 @@ kingdee:
   base-url: http://192.168.1.16/k3cloud
   username: 叶军营
   password: hl123456.
-  acct-id: 6a4f210a7a84ea
+  acct-id: 692fb7433ff3c1
   lcid: 2052
   # 单次 HTTP 超时（毫秒）
   connect-timeout-ms: 10000

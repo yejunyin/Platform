@@ -61,17 +61,20 @@ public class DbMaterialCall implements Serializable {
     @Schema(description = "质检员姓名")
     private String qcStaffName;
 
-    @Schema(description = "补料原因ID")
-    private Integer reasonId;
+    @Schema(description = "退料原因ID(字典reasonType=2)")
+    private String reasonId;
 
-    @Schema(description = "补料原因文本")
+    @Schema(description = "退料原因文本")
     private String reasonText;
 
     @Schema(description = "状态: 10待质检审核 11已驳回 20批次匹配中 30退料单生成中 31退料单生成异常 40退料单已生成 41WMS申请异常 50WMS申请已生成 99已完成")
     private Integer status;
 
-    @Schema(description = "退料类型: 审核通过时由后端取REASON_ID写入, 不再由审核端选择")
-    private Integer returnType;
+    @Schema(description = "退料类型字典ID(reasonType=1): 发起人提交时写入(接口5), 审核通过时以接口9回传值为准覆盖")
+    private String returnType;
+
+    @Schema(description = "退料类型文案(冗余, 供接口8/7直接返回展示)")
+    private String returnTypeName;
 
     @Schema(description = "驳回原因")
     private String rejectReason;

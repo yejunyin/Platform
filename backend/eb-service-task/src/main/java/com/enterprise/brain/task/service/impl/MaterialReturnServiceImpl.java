@@ -50,6 +50,9 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final DateTimeFormatter FMT_DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
+    /** 字典类型：1退料类型(金蝶退料单必需, FReturnType枚举值) 2退料原因(业务描述) */
+    private static final String REASON_TYPE_RETURN_TYPE = "1";
+
     /** ERP退料单生成最大重试次数 */
     private static final int ERP_MAX_ATTEMPTS = 3;
 
@@ -162,17 +165,18 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
     }
 
     // ==================================================================
-    // 接口3：补料原因字典
+    // 接口3：原因字典（reasonType=1退料类型 / reasonType=2退料原因）
     // ==================================================================
 
     @Override
-    public List<Map<String, Object>> getReasons(Integer reasonType) {
-        int type = reasonType == null ? 1 : reasonType;
+    public List<Map<String, Object>> getReasons(String reasonType) {
+        String type = (reasonType == null || reasonType.trim().isEmpty())
+                ? REASON_TYPE_RETURN_TYPE : reasonType.trim();
         List<DbMaterialReason> list = reasonMapper.selectByType(type);
         List<Map<String, Object>> result = new ArrayList<>();
         for (DbMaterialReason r : list) {
             Map<String, Object> m = new LinkedHashMap<>();
-            m.put("id", r.getId());
+            m.put("id", r.getReasonId());
             m.put("name", r.getName());
             result.add(m);
         }
@@ -234,6 +238,13 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
             }
         }
 
+        // ===== 服务端二次校验：退料类型必须存在于 reasonType=1 字典 =====
+        DbMaterialReason returnTypeDict = reasonMapper.selectByIdAndType(request.getReturnTypeId(),
+                REASON_TYPE_RETURN_TYPE);
+        if (returnTypeDict == null) {
+            throw new IllegalArgumentException("退料类型不合法：" + request.getReturnTypeId());
+        }
+
         // ===== 生成申请单 =====
         LocalDateTime now = LocalDateTime.now();
         DbMaterialCall call = new DbMaterialCall();
@@ -247,6 +258,8 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
         call.setQcStaffName(request.getQcStaffName());
         call.setReasonId(request.getReasonId());
         call.setReasonText(request.getReasonText());
+        call.setReturnType(request.getReturnTypeId());
+        call.setReturnTypeName(request.getReturnTypeName());
         call.setStatus(DbMaterialCall.STATUS_PENDING_AUDIT);
         call.setWmsEnabled(0);
         call.setCreateTime(now);
@@ -348,6 +361,8 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
             dto.setCreateTime(fmt(call.getCreateTime()));
             dto.setApplicantName(call.getApplicantName());
             dto.setApplicantDept(call.getApplicantDept());
+            dto.setReturnTypeId(call.getReturnType());
+            dto.setReturnTypeText(call.getReturnTypeName());
             dto.setReasonText(call.getReasonText());
 
             Map<String, List<DbMaterialCallItem>> byOrder = itemMap
@@ -416,17 +431,24 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
         if (!Objects.equals(request.getAuditResult(), 1)) {
             throw new IllegalArgumentException("审核结果不合法（1通过 2驳回）");
         }
-        // 退料类型不再由审核端选择：取申请单发起人提交时选择的补料原因(REASON_ID)写入RETURN_TYPE
-        Integer returnType = call.getReasonId();
+        // 退料类型由前端随审核请求回传(取自接口8列表项)：必填且必须存在于 reasonType=1 字典；
+        // 历史单据(RETURN_TYPE为空且前端未回传)在此被拦截，由申请人重新发起
+        String returnType = request.getReturnTypeId();
         if (returnType == null) {
-            throw new IllegalArgumentException("申请单缺少补料原因，无法确定退料类型");
+            throw new IllegalArgumentException("退料类型必填");
         }
+        DbMaterialReason returnTypeDict = reasonMapper.selectByIdAndType(returnType, REASON_TYPE_RETURN_TYPE);
+        if (returnTypeDict == null) {
+            throw new IllegalArgumentException("退料类型不合法：" + returnType);
+        }
+        String returnTypeName = returnTypeDict.getName();
         boolean force = Objects.equals(request.getForceFlag(), 1);
 
-        // 10 → 20 批次匹配中
+        // 10 → 20 批次匹配中（RETURN_TYPE以审核回传值为准覆盖写入）
         int affected = updateStatus(call.getId(), DbMaterialCall.STATUS_PENDING_AUDIT,
                 DbMaterialCall.STATUS_MATCHING, uw -> uw
                         .set(DbMaterialCall::getReturnType, returnType)
+                        .set(DbMaterialCall::getReturnTypeName, returnTypeName)
                         .set(DbMaterialCall::getAuditBy, auditBy)
                         .set(DbMaterialCall::getAuditTime, LocalDateTime.now())
                         .set(DbMaterialCall::getErrorMsg, null));
@@ -811,6 +833,12 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
                 ppbomMap.keySet(), ppbomEntryMap.keySet());
 
         // 组装分录（退料单 + 补料单）
+        // 退料类型 → 金蝶字段映射：FReturnType=退料类型枚举值, FReturnReason.FNumber=前台所选退料原因编码(trim)
+        // （金蝶保存生产退料单必需字段，缺失将导致Save失败置状态31或后台退料原因为空）
+        String returnReasonCode = call.getReasonId() == null ? null : call.getReasonId().trim();
+        if (returnReasonCode != null && returnReasonCode.isEmpty()) {
+            returnReasonCode = null;
+        }
         List<KingdeeService.ReturnOrderEntry> retEntries = new ArrayList<>();
         List<KingdeeService.FeedOrderEntry> feedEntries = new ArrayList<>();
         String headerStockOrg = null;
@@ -839,8 +867,10 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
             retEntry.setMaterialNumber(batch.getMaterialCode());
             retEntry.setUnitNumber(unitNumber);
             retEntry.setQty(batch.getQty());
-            // 退料类型依据申请单补料原因(REASON_ID)；历史单据缺原因时回退旧RETURN_TYPE
-            retEntry.setReturnType(call.getReasonId() != null ? call.getReasonId() : call.getReturnType());
+            // 退料类型取申请单RETURN_TYPE(发起人提交时选择, 审核通过时以回传值为准覆盖)
+            retEntry.setReturnType(call.getReturnType());
+            // 金蝶退料原因(FReturnReason.FNumber)取退料类型字典配置的ERP_CODE, 不能用业务退料原因reasonId
+            retEntry.setReturnReasonCode(returnReasonCode);
             retEntry.setStockNumber(batch.getWarehouseCode());
             retEntry.setLotNumber(batch.getBatchNo());
             retEntry.setMoBillNo(item.getOrderCode());
@@ -1086,6 +1116,7 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
         dto.setApplicantName(call.getApplicantName());
         dto.setApplicantDept(call.getApplicantDept());
         dto.setQcStaffName(call.getQcStaffName());
+        dto.setReturnTypeText(call.getReturnTypeName());
         dto.setReasonId(call.getReasonId());
         dto.setReasonText(call.getReasonText());
         dto.setErpOrderNo(call.getErpOrderNo());

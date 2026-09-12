@@ -204,7 +204,8 @@ public class KingdeeService {
         private String materialNumber;
         private String unitNumber;
         private BigDecimal qty;
-        private Integer returnType;     // 退料类型, 取申请单REASON_ID(补料原因)
+        private String returnType;      // 退料类型, 字典reasonType=1的ID(即金蝶FReturnType枚举值: 1良品退料 2来料不良退料), Save必需
+        private String returnReasonCode; // 金蝶退料原因编码(FReturnReason.FNumber, 如TLYY01_SYS良品退料/TLYY02_SYS来料不良), Save必需
         private String stockNumber;
         private String lotNumber;
         private String moBillNo;
@@ -710,7 +711,13 @@ public class KingdeeService {
                 entry.put("FUnitID", Collections.singletonMap("FNumber", e.getUnitNumber()));
                 entry.put("FAPPQty", e.getQty());
                 entry.put("FQty", e.getQty());
-                entry.put("FReturnType", e.getReturnType());
+                // 退料类型/退料原因：金蝶保存生产退料单必需字段，缺失将导致Save失败
+                if (e.getReturnType() != null) {
+                    entry.put("FReturnType", e.getReturnType());
+                }
+                if (e.getReturnReasonCode() != null && !e.getReturnReasonCode().isEmpty()) {
+                    entry.put("FReturnReason", Collections.singletonMap("FNumber", e.getReturnReasonCode()));
+                }
                 entry.put("FStockId", Collections.singletonMap("FNumber", e.getStockNumber()));
                 entry.put("FLot", Collections.singletonMap("FNumber", e.getLotNumber()));
                 entry.put("FStockStatusId", Collections.singletonMap("FNumber", "KCZT01_SYS"));
@@ -726,6 +733,7 @@ public class KingdeeService {
                 entry.put("FSrcBillType", "PRD_PPBOM");
                 entry.put("FSrcBillNo", e.getPpbomBillNo());
                 entry.put("FPPBomEntryId", e.getPpbomEntryId());
+                //entry.put("FIsUpdateQty", true);
                 entry.put("FPPBomBillNo", e.getPpbomBillNo());
                 if (e.getPpbomId() != null && e.getPpbomEntryId() != null) {
                     Map<String, Object> link = new LinkedHashMap<>();

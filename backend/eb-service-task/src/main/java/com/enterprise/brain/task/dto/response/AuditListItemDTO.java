@@ -30,7 +30,13 @@ public class AuditListItemDTO implements Serializable {
     @Schema(description = "申请人部门")
     private String applicantDept;
 
-    @Schema(description = "补料原因")
+    @Schema(description = "退料类型ID(审核通过时前端回传给接口9; 历史单据可能为null)")
+    private String returnTypeId;
+
+    @Schema(description = "退料类型文案")
+    private String returnTypeText;
+
+    @Schema(description = "退料原因")
     private String reasonText;
 
     @Schema(description = "订单及物料明细")

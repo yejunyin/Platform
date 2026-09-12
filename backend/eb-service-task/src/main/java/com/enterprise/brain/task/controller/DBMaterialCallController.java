@@ -63,12 +63,12 @@ public class DBMaterialCallController {
         return ok(() -> materialReturnService.getOrderMaterials(splitCodes(orderCodes), username));
     }
 
-    // ==================== 接口3：获取补料原因字典 ====================
+    // ==================== 接口3：获取原因字典（退料类型/退料原因） ====================
 
     @GetMapping("/getReasons")
-    @Operation(summary = "获取补料原因字典", description = "reasonType=1补料原因(预留扩展)")
+    @Operation(summary = "获取原因字典", description = "reasonType=1退料类型(金蝶退料单必需字段, id即FReturnType枚举值: 1良品退料 2来料不良退料) / reasonType=2退料原因(业务描述)")
     public MaterialResult<List<Map<String, Object>>> getReasons(
-            @Parameter(description = "原因类型 1补料原因") @RequestParam(value = "reasonType", required = false, defaultValue = "1") Integer reasonType) {
+            @Parameter(description = "字典类型 1退料类型 2退料原因") @RequestParam(value = "reasonType", required = false, defaultValue = "1") String reasonType) {
         return ok(() -> materialReturnService.getReasons(reasonType));
     }
 
@@ -125,8 +125,8 @@ public class DBMaterialCallController {
     // ==================== 接口9：质检审核 ====================
 
     @PostMapping("/audit")
-    @Operation(summary = "质检审核", description = "驳回(必填原因)或通过(退料类型取申请单补料原因)触发FIFO匹配+金蝶退料单+WMS出库申请流水线；"
-            + "库存不足且forceFlag=0时返回status=2部分匹配")
+    @Operation(summary = "质检审核", description = "驳回(必填原因)或通过(必传returnTypeId, 取自接口8列表项)触发FIFO匹配+金蝶退料单(携带退料类型)+WMS出库申请流水线；"
+            + "库存不足且forceFlag=0时返回status=2部分匹配, forceFlag=1重发时returnTypeId原样保留")
     public MaterialResult<?> audit(
             @Parameter(description = "操作人工号") @RequestParam(value = "username", required = false) String username,
             @Valid @RequestBody MaterialAuditRequest request) {

@@ -140,6 +140,129 @@ ELSE
     PRINT '列 LOCATION_ID 已存在，跳过';
 GO
 
+PRINT '========== 增量变更20260911：退料类型与退料原因拆分 ================';
+-- 语义调整: REASON_ID/REASON_TEXT=退料原因(字典reasonType=2, 发起人申请时选择)
+--           RETURN_TYPE=退料类型字典ID(reasonType=1): 发起人提交时写入(接口5), 审核通过时以接口9回传值为准覆盖
+--           RETURN_TYPE_NAME=退料类型文案冗余, 供接口8/7直接返回展示
+
+-- 1. 申请主表新增 RETURN_TYPE_NAME
+IF COL_LENGTH('dbo.DB_MATERIAL_CALL', 'RETURN_TYPE_NAME') IS NULL
+BEGIN
+    ALTER TABLE dbo.DB_MATERIAL_CALL ADD RETURN_TYPE_NAME VARCHAR(50) NULL; -- 退料类型文案冗余
+    PRINT '已为 DB_MATERIAL_CALL 增加列 RETURN_TYPE_NAME';
+END
+ELSE
+    PRINT '列 RETURN_TYPE_NAME 已存在，跳过';
+GO
+
+-- 2. 字典表新增 ERP_CODE(金蝶退料原因编码 FReturnReason.FNumber, 仅退料类型 reasonType=1 使用)
+IF COL_LENGTH('dbo.DB_MATERIAL_REASON', 'ERP_CODE') IS NULL
+BEGIN
+    ALTER TABLE dbo.DB_MATERIAL_REASON ADD ERP_CODE VARCHAR(50) NULL;
+    PRINT '已为 DB_MATERIAL_REASON 增加列 ERP_CODE';
+END
+ELSE
+    PRINT '列 ERP_CODE 已存在，跳过';
+GO
+
+-- 3. 字典数据迁移: 原 reasonType=1 的"补料原因"类数据迁移为 reasonType=2 退料原因
+--    (IDENTITY列不可UPDATE, 采用删除重插; 存量单据 REASON_TEXT 已冗余文案, 展示不受影响)
+IF EXISTS(SELECT 1 FROM dbo.DB_MATERIAL_REASON WHERE REASON_TYPE = 1 AND ERP_CODE IS NULL)
+BEGIN
+    SELECT NAME, SORT_NO, ENABLED INTO #mig_reason FROM dbo.DB_MATERIAL_REASON
+        WHERE REASON_TYPE = 1 AND ERP_CODE IS NULL;
+    DELETE FROM dbo.DB_MATERIAL_REASON WHERE REASON_TYPE = 1 AND ERP_CODE IS NULL;
+    INSERT INTO dbo.DB_MATERIAL_REASON (REASON_TYPE, NAME, SORT_NO, ENABLED)
+        SELECT 2, NAME, SORT_NO, ENABLED FROM #mig_reason;
+    DROP TABLE #mig_reason;
+    PRINT '已将原补料原因数据迁移为退料原因(reasonType=2)';
+END
+ELSE
+    PRINT '无待迁移的补料原因数据，跳过';
+GO
+
+-- 4. 重录 reasonType=1 退料类型字典(ID 即金蝶 FReturnType 枚举值: 1良品退料 2来料不良退料)
+IF NOT EXISTS(SELECT 1 FROM dbo.DB_MATERIAL_REASON WHERE REASON_TYPE = 1)
+BEGIN
+    SET IDENTITY_INSERT dbo.DB_MATERIAL_REASON ON;
+    INSERT INTO dbo.DB_MATERIAL_REASON (ID, REASON_TYPE, NAME, ERP_CODE, SORT_NO, ENABLED) VALUES
+        (1, 1, N'良品退料',     'TLYY01_SYS', 1, 1),
+        (2, 1, N'来料不良退料', 'TLYY02_SYS', 2, 1);
+    SET IDENTITY_INSERT dbo.DB_MATERIAL_REASON OFF;
+    PRINT '已重录退料类型字典(reasonType=1)';
+END
+ELSE
+    PRINT '退料类型字典(reasonType=1)已存在，跳过';
+GO
+
+PRINT '========== 增量变更20260912：字典改用编码, 主表REASON_ID/RETURN_TYPE转VARCHAR ==========';
+-- 背景: 字典REASON_ID改存金蝶编码(如TLYY01_SYS), 而主表REASON_ID/RETURN_TYPE仍为INT,
+--       插入报错245(在将varchar值'TLYY01_SYS'转换成数据类型int时失败)
+
+-- 1. 字典表补充 REASON_ID 列(字典编码, 接口3下发/接口5、9回传校验依据; 此前为手工添加, 脚本缺失)
+IF COL_LENGTH('dbo.DB_MATERIAL_REASON', 'REASON_ID') IS NULL
+BEGIN
+    ALTER TABLE dbo.DB_MATERIAL_REASON ADD REASON_ID VARCHAR(50) NULL;
+    PRINT '已为 DB_MATERIAL_REASON 增加列 REASON_ID';
+END
+ELSE
+    PRINT '列 DB_MATERIAL_REASON.REASON_ID 已存在，跳过';
+GO
+
+-- 2. 字典表 REASON_ID 为定长字符(CHAR/NCHAR)时转VARCHAR并清理尾部空格
+--    (CHAR读出带尾部空格, 会原样落库主表: 'TLYY01_SYS______...')
+IF EXISTS (SELECT 1 FROM sys.columns
+           WHERE object_id = OBJECT_ID('dbo.DB_MATERIAL_REASON')
+             AND name = 'REASON_ID'
+             AND system_type_id IN (TYPE_ID('char'), TYPE_ID('nchar')))
+BEGIN
+    ALTER TABLE dbo.DB_MATERIAL_REASON ALTER COLUMN REASON_ID VARCHAR(50) NULL;
+    UPDATE dbo.DB_MATERIAL_REASON SET REASON_ID = RTRIM(REASON_ID) WHERE REASON_ID IS NOT NULL;
+    PRINT '已将 DB_MATERIAL_REASON.REASON_ID 转为 VARCHAR 并清理尾部空格';
+END
+ELSE
+    PRINT 'DB_MATERIAL_REASON.REASON_ID 非 CHAR/NCHAR，跳过';
+GO
+
+-- 3. 字典回填: reasonType=1(退料类型)的REASON_ID=金蝶FReturnType枚举值(与主键ID一致); reasonType=2由业务维护
+IF EXISTS (SELECT 1 FROM dbo.DB_MATERIAL_REASON WHERE REASON_TYPE = 1 AND REASON_ID IS NULL)
+BEGIN
+    UPDATE dbo.DB_MATERIAL_REASON SET REASON_ID = CAST(ID AS VARCHAR(50))
+        WHERE REASON_TYPE = 1 AND REASON_ID IS NULL;
+    PRINT '已回填退料类型字典 REASON_ID';
+END
+ELSE
+    PRINT '退料类型字典 REASON_ID 无需回填，跳过';
+GO
+
+-- 4. 主表 REASON_ID: INT/CHAR → VARCHAR(50) (存量int值自动转为数字字符串)
+IF EXISTS (SELECT 1 FROM sys.columns
+           WHERE object_id = OBJECT_ID('dbo.DB_MATERIAL_CALL')
+             AND name = 'REASON_ID'
+             AND system_type_id IN (TYPE_ID('int'), TYPE_ID('char'), TYPE_ID('nchar')))
+BEGIN
+    ALTER TABLE dbo.DB_MATERIAL_CALL ALTER COLUMN REASON_ID VARCHAR(50) NULL;
+    UPDATE dbo.DB_MATERIAL_CALL SET REASON_ID = RTRIM(REASON_ID) WHERE REASON_ID IS NOT NULL;
+    PRINT '已将 DB_MATERIAL_CALL.REASON_ID 转为 VARCHAR(50)';
+END
+ELSE
+    PRINT 'DB_MATERIAL_CALL.REASON_ID 非 INT/CHAR/NCHAR，跳过';
+GO
+
+-- 5. 主表 RETURN_TYPE: INT/CHAR → VARCHAR(50)
+IF EXISTS (SELECT 1 FROM sys.columns
+           WHERE object_id = OBJECT_ID('dbo.DB_MATERIAL_CALL')
+             AND name = 'RETURN_TYPE'
+             AND system_type_id IN (TYPE_ID('int'), TYPE_ID('char'), TYPE_ID('nchar')))
+BEGIN
+    ALTER TABLE dbo.DB_MATERIAL_CALL ALTER COLUMN RETURN_TYPE VARCHAR(50) NULL;
+    UPDATE dbo.DB_MATERIAL_CALL SET RETURN_TYPE = RTRIM(RETURN_TYPE) WHERE RETURN_TYPE IS NOT NULL;
+    PRINT '已将 DB_MATERIAL_CALL.RETURN_TYPE 转为 VARCHAR(50)';
+END
+ELSE
+    PRINT 'DB_MATERIAL_CALL.RETURN_TYPE 非 INT/CHAR/NCHAR，跳过';
+GO
+
 PRINT '========== 验证统计 ==========';
 SELECT 'DB_MATERIAL_CALL' AS tbl, COUNT(*) AS cnt FROM dbo.DB_MATERIAL_CALL
 UNION ALL

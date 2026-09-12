@@ -36,10 +36,13 @@ public class MaterialApplicationDTO implements Serializable {
     @Schema(description = "质检员姓名")
     private String qcStaffName;
 
-    @Schema(description = "补料原因ID")
-    private Integer reasonId;
+    @Schema(description = "退料类型文案(有值才展示)")
+    private String returnTypeText;
 
-    @Schema(description = "补料原因")
+    @Schema(description = "退料原因ID")
+    private String reasonId;
+
+    @Schema(description = "退料原因")
     private String reasonText;
 
     @Schema(description = "关联生产订单号(逗号分隔)")

@@ -26,7 +26,7 @@ public interface MaterialReturnService {
     List<OrderMaterialsDTO> getOrderMaterials(List<String> orderCodes, String username);
 
     /** 接口3：获取补料原因字典 */
-    List<Map<String, Object>> getReasons(Integer reasonType);
+    List<Map<String, Object>> getReasons(String reasonType);
 
     /** 接口4：获取质检员列表 */
     List<QcStaffDTO> getQcStaffList(String username);

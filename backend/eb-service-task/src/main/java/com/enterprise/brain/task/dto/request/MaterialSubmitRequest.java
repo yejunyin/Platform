@@ -30,12 +30,20 @@ public class MaterialSubmitRequest implements Serializable {
     @Schema(description = "申请人部门")
     private String applicantDept;
 
-    @NotNull(message = "补料原因不能为空")
-    @Schema(description = "补料原因ID")
-    private Integer reasonId;
+    @NotNull(message = "退料类型不能为空")
+    @Schema(description = "退料类型字典ID(接口3 reasonType=1 返回项id, 金蝶退料单必需)")
+    private String returnTypeId;
 
-    @NotBlank(message = "补料原因不能为空")
-    @Schema(description = "补料原因文本")
+    @NotBlank(message = "退料类型不能为空")
+    @Schema(description = "退料类型文案, 冗余存储供展示")
+    private String returnTypeName;
+
+    @NotBlank(message = "退料原因不能为空")
+    @Schema(description = "退料原因ID(接口3 reasonType=2 字典)")
+    private String reasonId;
+
+    @NotBlank(message = "退料原因不能为空")
+    @Schema(description = "退料原因文本")
     private String reasonText;
 
     @NotBlank(message = "质检员不能为空")
