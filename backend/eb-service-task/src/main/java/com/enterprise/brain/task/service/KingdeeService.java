@@ -741,7 +741,7 @@ public class KingdeeService {
                     link.put("FEntity_Link_FSBillId", e.getPpbomId());
                     link.put("FEntity_Link_FSId", e.getPpbomEntryId());
                     link.put("FEntity_Link_FSTableName", "T_PRD_PPBOMENTRY");
-                    link.put("FEntity_Link_FBaseQtyOld", e.getQty());
+                    //link.put("FEntity_Link_FBaseQtyOld", e.getQty());
                     link.put("FEntity_Link_FBaseQty", e.getQty());
                     entry.put("FEntity_Link", Collections.singletonList(link));
                 }
