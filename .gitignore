@@ -1,0 +1,2 @@
+# 忽略这个具体的 application.yml
+backend/eb-service-task/src/main/resources/application.yml
