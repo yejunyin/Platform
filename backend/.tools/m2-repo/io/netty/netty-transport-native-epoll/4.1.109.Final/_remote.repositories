@@ -1,0 +1,6 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Tue Sep 15 14:26:53 CST 2026
+netty-transport-native-epoll-4.1.109.Final-linux-aarch_64.jar>aliyun-public=
+netty-transport-native-epoll-4.1.109.Final-linux-riscv64.jar>aliyun-public=
+netty-transport-native-epoll-4.1.109.Final-linux-x86_64.jar>aliyun-public=
+netty-transport-native-epoll-4.1.109.Final.pom>aliyun-public=

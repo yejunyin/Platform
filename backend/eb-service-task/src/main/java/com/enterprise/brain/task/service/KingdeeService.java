@@ -793,7 +793,7 @@ public class KingdeeService {
         Long billId = null;
 
         // 2. Submit（失败时携带已保存单号抛出，供重试续传）
-        try {
+        /***try {
             Map<String, Object> submitBody = baseRequestBody();
             submitBody.put("parameters", Arrays.asList("PRD_ReturnMtrl",
                     Collections.singletonMap("Numbers", Collections.singletonList(billNo))));
@@ -816,7 +816,7 @@ public class KingdeeService {
         } catch (KingdeeApiException e) {
             if (e instanceof BillStageException) throw e;
             throw new BillStageException("PRD_ReturnMtrl", billNo, e.getMessage());
-        }
+        }***/
 
         ReturnOrderResult result = new ReturnOrderResult();
         result.setBillNo(billNo);
@@ -978,7 +978,7 @@ public class KingdeeService {
         }
 
         // 2. Submit（失败时携带已保存单号抛出，供重试续传）
-        try {
+        /***try {
             Map<String, Object> submitBody = baseRequestBody();
             submitBody.put("parameters", Arrays.asList("PRD_FeedMtrl",
                     Collections.singletonMap("Numbers", Collections.singletonList(billNo))));
@@ -1001,7 +1001,7 @@ public class KingdeeService {
         } catch (KingdeeApiException e) {
             if (e instanceof BillStageException) throw e;
             throw new BillStageException("PRD_FeedMtrl", billNo, e.getMessage());
-        }
+        }***/
 
         ReturnOrderResult result = new ReturnOrderResult();
         result.setBillNo(billNo);

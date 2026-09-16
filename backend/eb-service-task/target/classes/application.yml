@@ -85,3 +85,22 @@ material:
     webhook: ""
   # 补退料允许的生产订单状态（金蝶FStatus: 3下达 4开工）
   allow-mo-status: "2,3,4"
+
+# 设备维修工单 MQ 推送（安灯小程序 → 本服务转发 MQ → 消费端同步 inv_eqp_maintenance）
+work-order:
+  push:
+    mq:
+      type: ${MQ_TYPE:rocket}        # rocket(实际使用) | rabbit(备选，消费端切换MQ类型时启用)
+      rocket:
+        name-server: ${MQ_NAMESRV:192.168.15.6:9876}
+        topic: ${MQ_TOPIC:G-HL-DEVICE}
+        producer-group: ${MQ_PRODUCER_GROUP:andon-work-order-producer}
+        send-timeout-ms: 3000
+        retry-times: 1
+      rabbit:
+        host: ${MQ_HOST:localhost}
+        port: ${MQ_PORT:5672}
+        username: ${MQ_USER:guest}
+        password: ${MQ_PASS:guest}
+        exchange: agent.exchange
+        routing-key: work-order

@@ -38,6 +38,8 @@
         <mysql.version>8.0.33</mysql.version>
         <mssql.version>12.6.1.jre11</mssql.version>
         <redisson.version>3.27.2</redisson.version>
+        <rocketmq-client.version>5.1.0</rocketmq-client.version>
+        <amqp-client.version>5.20.0</amqp-client.version>
     </properties>
 
     <dependencyManagement>
@@ -105,6 +107,16 @@
                 <groupId>com.microsoft.sqlserver</groupId>
                 <artifactId>mssql-jdbc</artifactId>
                 <version>${mssql.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.rocketmq</groupId>
+                <artifactId>rocketmq-client</artifactId>
+                <version>${rocketmq-client.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.rabbitmq</groupId>
+                <artifactId>amqp-client</artifactId>
+                <version>${amqp-client.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.enterprise.brain</groupId>

@@ -61,6 +61,15 @@
             <groupId>com.enterprise.brain</groupId>
             <artifactId>eb-common</artifactId>
         </dependency>
+        <!-- 设备维修工单 MQ 推送：RocketMQ(实际使用) + RabbitMQ(备选) -->
+        <dependency>
+            <groupId>org.apache.rocketmq</groupId>
+            <artifactId>rocketmq-client</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.rabbitmq</groupId>
+            <artifactId>amqp-client</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

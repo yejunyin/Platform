@@ -1,10 +1,12 @@
 E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\dto\request\TaskQueryDTO.java
 E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\controller\MaterialCallController.java
+E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\controller\DBWorkOrderController.java
 E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\enums\TaskPriorityEnum.java
 E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\dto\request\MaterialAuditRequest.java
 E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\mapper\TaskTransferMapper.java
 E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\dto\response\TaskHistoryDTO.java
 E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\dto\request\CallRespondRequest.java
+E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\config\WorkOrderPushProperties.java
 E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\entity\MesMaterialCall.java
 E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\mapper\TaskInfoMapper.java
 E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\enums\ExternalSystemEnum.java
@@ -16,6 +18,7 @@ E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterpr
 E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\mapper\DbMaterialReasonMapper.java
 E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\mapper\DbMaterialCallBatchMapper.java
 E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\TaskServiceApplication.java
+E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\dto\mq\WorkOrderDTO.java
 E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\mapper\TaskHandleHistoryMapper.java
 E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\dto\response\QcStaffDTO.java
 E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\entity\DbMaterialCall.java
@@ -33,8 +36,10 @@ E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterpr
 E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\service\impl\TaskServiceImpl.java
 E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\dto\response\MaterialCallTaskDTO.java
 E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\config\KingdeeProperties.java
+E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\dto\mq\WorkOrderEvent.java
 E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\entity\DbMaterialCallItem.java
 E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\dto\response\OrderMaterialsDTO.java
+E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\service\WorkOrderPushService.java
 E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\dto\response\TaskDetailDTO.java
 E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\dto\response\TaskStatisticsDTO.java
 E:\叶的共享文件\Platform\backend\eb-service-task\src\main\java\com\enterprise\brain\task\dto\request\TaskCreateDTO.java
