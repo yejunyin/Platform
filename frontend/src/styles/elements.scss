@@ -5,7 +5,9 @@
 //  用 CSS Variables + deep selector 覆盖 EP 默认样式
 // ============================================================
 
-:root {
+// :root:root 双伪类提升优先级（0,2,0），确保生产构建中 EP 组件样式 chunk
+// 晚于本文件加载时，变量覆盖仍能生效（同为 :root 时后加载者胜）
+:root:root {
   // ---------- 主色（覆盖 Element Plus 默认蓝） ----------
   --el-color-primary:                  #{v.$primary-color};
   --el-color-primary-light-3:          #{v.$primary-color-light};
@@ -209,10 +211,11 @@
 // ============================================================
 //  表格（HMI 控制台风：分隔表头、行间切分、选中高亮）
 // ============================================================
-.el-table {
+:root .el-table {
   --el-table-border-color: #{v.$border-color};
   --el-table-header-bg-color: #0f1722;
   --el-table-bg-color: #{v.$panel-bg};
+  --el-table-tr-bg-color: #{v.$panel-bg};
   --el-table-row-hover-bg-color: #{v.$panel-bg-hover};
   --el-table-text-color: #{v.$text-regular};
   --el-table-header-text-color: #{v.$text-primary};
@@ -223,9 +226,9 @@
   overflow: hidden;
   font-size: 13px;
 }
-.el-table::before { background-color: v.$border-color !important; }
-.el-table tr { background: v.$panel-bg; }
-.el-table th.el-table__cell {
+:root .el-table::before { background-color: v.$border-color !important; }
+:root .el-table tr { background: v.$panel-bg; }
+:root .el-table th.el-table__cell {
   background: linear-gradient(180deg, #121e2e 0%, #0c1522 100%);
   color: v.$text-primary !important;
   font-family: v.$font-display;
@@ -235,27 +238,44 @@
   border-bottom: 1px solid v.$border-accent;
   font-size: 12px;
 }
-.el-table td.el-table__cell {
+:root .el-table td.el-table__cell {
   border-bottom: 1px solid v.$border-color !important;
   font-family: v.$font-mono;
   color: v.$text-regular;
 }
-.el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell {
+:root .el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell {
   background: rgba(255,255,255,0.015);
 }
-.el-table__body tr.current-row > td.el-table__cell {
+:root .el-table__body tr.current-row > td.el-table__cell {
   background: rgba(26,179,255,0.10) !important;
 }
-.el-table .descending .sort-caret.descending,
-.el-table .ascending  .sort-caret.ascending {
+:root .el-table .descending .sort-caret.descending,
+:root .el-table .ascending  .sort-caret.ascending {
   border-bottom-color: v.$primary-color !important;
   border-top-color: v.$primary-color !important;
 }
-.el-table__empty-block {
+:root .el-table__empty-block {
   background: v.$panel-bg;
   min-height: 140px;
 }
-.el-table__empty-text { color: v.$text-secondary; }
+:root .el-table__empty-text { color: v.$text-secondary; }
+// 固定列（sticky）：与普通行/表头同底色，避免固定列残留 EP 默认白底
+:root .el-table th.el-table-fixed-column--left,
+:root .el-table th.el-table-fixed-column--right {
+  background: linear-gradient(180deg, #121e2e 0%, #0c1522 100%) !important;
+}
+:root .el-table td.el-table-fixed-column--left,
+:root .el-table td.el-table-fixed-column--right {
+  background: v.$panel-bg;
+}
+:root .el-table--striped .el-table__body tr.el-table__row--striped td.el-table-fixed-column--left,
+:root .el-table--striped .el-table__body tr.el-table__row--striped td.el-table-fixed-column--right {
+  background: rgba(255,255,255,0.015);
+}
+:root .el-table__body tr.current-row > td.el-table-fixed-column--left,
+:root .el-table__body tr.current-row > td.el-table-fixed-column--right {
+  background: rgba(26,179,255,0.10) !important;
+}
 
 // ============================================================
 //  Pagination

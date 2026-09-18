@@ -22,6 +22,7 @@ CREATE TABLE [sys_user] (
     [real_name]       VARCHAR(64)     NOT NULL,
     [email]           VARCHAR(128)    NULL,
     [phone]           VARCHAR(32)     NULL,
+    [dingdingid]      VARCHAR(64)     NULL,
     [avatar]          VARCHAR(512)    NULL,
     [dept_id]         BIGINT          NULL,
     [status]          TINYINT         NOT NULL DEFAULT 1,

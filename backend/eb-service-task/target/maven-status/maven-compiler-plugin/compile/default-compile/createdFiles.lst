@@ -4,9 +4,11 @@ com\enterprise\brain\task\dto\response\OrderInfoDTO.class
 com\enterprise\brain\task\service\impl\MaterialReturnServiceImpl$PartialMatchException.class
 com\enterprise\brain\task\service\impl\MaterialReturnServiceImpl$StockPool.class
 com\enterprise\brain\task\service\KingdeeService$BillStageException.class
+com\enterprise\brain\task\dto\response\QcStaffVO.class
 com\enterprise\brain\task\service\KingdeeService$PpbomEntryDetail.class
 com\enterprise\brain\task\service\MaterialMessageService.class
 com\enterprise\brain\task\dto\request\TaskHandleDTO.class
+com\enterprise\brain\task\mapper\SysUserMapper.class
 com\enterprise\brain\task\dto\request\MaterialCallCreateRequest.class
 com\enterprise\brain\task\service\KingdeeService$LoginResult.class
 com\enterprise\brain\task\dto\response\OrderMaterialsDTO$MaterialLineDTO.class
@@ -22,9 +24,11 @@ com\enterprise\brain\task\entity\MesMaterialAlert.class
 com\enterprise\brain\task\controller\MaterialCallController.class
 com\enterprise\brain\task\mapper\DbMaterialCallMapper.class
 com\enterprise\brain\task\mapper\TaskHandleHistoryMapper.class
+com\enterprise\brain\task\service\impl\QcStaffServiceImpl.class
 com\enterprise\brain\task\service\WmsService$OutboundItem.class
 com\enterprise\brain\task\dto\response\MaterialAlertDTO.class
 com\enterprise\brain\task\controller\TaskController.class
+com\enterprise\brain\task\dto\request\QcStaffSaveRequest.class
 com\enterprise\brain\task\dto\response\OrderMaterialsDTO.class
 com\enterprise\brain\task\service\KingdeeService.class
 com\enterprise\brain\task\dto\request\MaterialSubmitRequest$OrderGroup.class
@@ -52,7 +56,9 @@ com\enterprise\brain\task\entity\TaskTransfer.class
 com\enterprise\brain\task\service\impl\MaterialReturnServiceImpl.class
 com\enterprise\brain\task\dto\response\MaterialCallOpResultDTO$PartialMatchDTO.class
 com\enterprise\brain\task\mapper\MesMaterialCallMapper.class
+com\enterprise\brain\task\service\QcStaffService.class
 com\enterprise\brain\task\entity\MesMaterialDetail.class
+com\enterprise\brain\task\controller\QcStaffController.class
 com\enterprise\brain\task\service\impl\MaterialCallServiceImpl.class
 com\enterprise\brain\task\service\KingdeeService$ReturnOrderEntry.class
 com\enterprise\brain\task\dto\response\AuditListItemDTO$MaterialDTO.class
@@ -69,7 +75,9 @@ com\enterprise\brain\task\service\WorkOrderPushService.class
 com\enterprise\brain\task\config\WorkOrderPushProperties.class
 com\enterprise\brain\task\config\KingdeeProperties.class
 com\enterprise\brain\task\dto\response\TaskDetailDTO.class
+com\enterprise\brain\task\dto\request\QcStaffDingdingIdRequest.class
 com\enterprise\brain\task\service\KingdeeService$ReturnOrderResult.class
+com\enterprise\brain\task\entity\SysUser.class
 com\enterprise\brain\task\dto\response\AuditListItemDTO$OrderDTO.class
 com\enterprise\brain\task\mapper\TaskTransferMapper.class
 com\enterprise\brain\task\config\WorkOrderPushProperties$Rabbit.class

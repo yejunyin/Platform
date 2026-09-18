@@ -1,0 +1,110 @@
+Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+ :: Spring Boot ::                (v3.2.5)
+
+2026-09-17T15:03:06.440+08:00  INFO 62040 --- [eb-service-task] [           main] c.e.brain.task.TaskServiceApplication    : Starting TaskServiceApplication v1.0.0 using Java 17.0.20.1 with PID 62040 (E:\叶的共享文件\Platform\backend\eb-service-task\target\eb-service-task-1.0.0.jar started by Administrator in E:\叶的共享文件\Platform)
+2026-09-17T15:03:06.446+08:00  INFO 62040 --- [eb-service-task] [           main] c.e.brain.task.TaskServiceApplication    : The following 1 profile is active: "dev"
+2026-09-17T15:03:08.265+08:00  INFO 62040 --- [eb-service-task] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
+2026-09-17T15:03:08.269+08:00  INFO 62040 --- [eb-service-task] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data Redis repositories in DEFAULT mode.
+2026-09-17T15:03:08.299+08:00  INFO 62040 --- [eb-service-task] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 16 ms. Found 0 Redis repository interfaces.
+2026-09-17T15:03:08.520+08:00  INFO 62040 --- [eb-service-task] [           main] o.s.cloud.context.scope.GenericScope     : BeanFactory id=7bacc036-50e3-368a-aa4d-d165bcf08427
+2026-09-17T15:03:09.589+08:00  INFO 62040 --- [eb-service-task] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8081 (http)
+2026-09-17T15:03:09.611+08:00  INFO 62040 --- [eb-service-task] [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+2026-09-17T15:03:09.611+08:00  INFO 62040 --- [eb-service-task] [           main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.20]
+2026-09-17T15:03:09.674+08:00  INFO 62040 --- [eb-service-task] [           main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+2026-09-17T15:03:09.675+08:00  INFO 62040 --- [eb-service-task] [           main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 3117 ms
+Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
+2026-09-17T15:03:10.365+08:00  INFO 62040 --- [eb-service-task] [           main] c.a.d.s.b.a.DruidDataSourceAutoConfigure : Init DruidDataSource
+2026-09-17T15:03:10.935+08:00  INFO 62040 --- [eb-service-task] [           main] com.alibaba.druid.pool.DruidDataSource   : {dataSource-1} inited
+Logging initialized using 'class org.apache.ibatis.logging.stdout.StdOutImpl' adapter.
+Initialization Sequence datacenterId:0 workerId:0
+ _ _   |_  _ _|_. ___ _ |    _ 
+| | |\/|_)(_| | |_\  |_)||_|_\ 
+     /               |         
+                        3.5.5 
+2026-09-17T15:03:12.675+08:00  INFO 62040 --- [eb-service-task] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 8081 (http) with context path ''
+2026-09-17T15:03:13.754+08:00  INFO 62040 --- [eb-service-task] [           main] o.s.cloud.commons.util.InetUtils         : Cannot determine local hostname
+2026-09-17T15:03:14.073+08:00  INFO 62040 --- [eb-service-task] [           main] o.s.b.a.e.web.EndpointLinksResolver      : Exposing 1 endpoint(s) beneath base path '/actuator'
+2026-09-17T15:03:14.105+08:00  INFO 62040 --- [eb-service-task] [           main] c.e.brain.task.TaskServiceApplication    : Started TaskServiceApplication in 9.432 seconds (process running for 10.149)
+2026-09-17T15:03:57.827+08:00  INFO 62040 --- [eb-service-task] [nio-8081-exec-3] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-09-17T15:03:57.827+08:00  INFO 62040 --- [eb-service-task] [nio-8081-exec-3] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+2026-09-17T15:03:57.995+08:00  INFO 62040 --- [eb-service-task] [nio-8081-exec-3] o.s.web.servlet.DispatcherServlet        : Completed initialization in 168 ms
+Creating a new SqlSession
+SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@3de5abc8] was not registered for synchronization because synchronization is not active
+JDBC Connection [com.alibaba.druid.pool.DruidStatementConnection@3d0083d] will not be managed by Spring
+==>  Preparing: select id,producttype,starttime,ordercode,pcode,machcode,materialid,materialname,total,spec,dept,staffname,scheduledpriority as schedulepriority,unit,BOMflag from mes_dwd_productOrder where starttime >= CAST(GETDATE() AS DATE) and dept='注塑车间' order by starttime asc
+==> Parameters: 
+<==    Columns: id, producttype, starttime, ordercode, pcode, machcode, materialid, materialname, total, spec, dept, staffname, schedulepriority, unit, BOMflag
+<==        Row: 1150807, product, 2026-09-17 00:32:57.0000000, MO2609170782, WORK26081419314A, ZS16, 6291322004, 1063侧手柄（TOTAL）-TOTAL绿PA6-GF30 A471-S0056, 5000, 1063, 注塑车间, 李军, 29999, g, 1
+<==        Row: 1150808, product, 2026-09-17 00:33:00.0000000, MO2609152224, WORK26071395241A, ZS30, 6290712001, HLG1-100B机壳-华丽蓝PA66-35, 1010, HLG1-100B, 注塑车间, 超级用户, 30000, g, 0
+<==        Row: 1150809, product, 2026-09-17 00:33:40.0000000, MO2609170780, WORK26081424630A, ZS08, 6292856001, 618甩尘圈, 3000, 6018、6019, 注塑车间, 李军, 1, g, 0
+<==        Row: 1150810, product, 2026-09-17 00:33:56.0000000, MO2609170781, WORK26081414387A, ZS08, 6020655001, 618定位圈, 3000, 6018、6019, 注塑车间, 李军, 1, g, 0
+<==        Row: 1150811, product, 2026-09-17 00:39:00.0000000, MO2609160714, WORK26050006843P, ZS36, 6291171006, 8276手柄（丝印LVH 印刷白色）- Hikoki绿色, 15, 8276, 注塑车间, 超级用户, 30000, g, 0
+<==        Row: 1150817, product, 2026-09-17 00:56:14.0000000, MO2609170788, WORK26081421365A, ZS24, 6400054001, 1015转子风叶（带沉孔）/一次成型用, 11000, 1015, 注塑车间, 邓靖骞, 999999, g, 1
+<==        Row: 1150818, product, 2026-09-17 00:57:11.0000000, MO2609170789, WORK26081424586A, ZS26, 6400064001, 1076转子风叶（39片）, 30000, MAC53, 注塑车间, 邓靖骞, 0, g, 1
+<==        Row: 1150831, product, 2026-09-17 01:38:43.0000000, MO2609170791, WORK26081421348A, ZS13, 6292101001, 1252B挡风圈-黑色, 1800, A15001A, 注塑车间, 余锋, 1, g, 0
+<==        Row: 1150832, product, 2026-09-17 01:40:15.0000000, MO2609170790, WORK26061380789A, ZS28, 6292714002, 8825箍托-黑色, 1500,  , 注塑车间, 邓靖骞, 1, g, 0
+<==        Row: 1150834, product, 2026-09-17 01:58:24.0000000, MO2609160777, WORK26081415237A, ZS02, 6290727003, 1029边盖-185C红色, 2400, A10029S, 注塑车间, 余锋, 0, g, 0
+<==        Row: 1150835, product, 2026-09-17 02:00:22.0000000, MO2609170792, WORK26081414142A, ZS01, 6290746004, 1808边盖-黑色, 2100, A18008, 注塑车间, 余锋, 1, g, 0
+<==        Row: 1150836, product, 2026-09-17 02:06:57.0000000, MO2608286601, WORK26081414707A, ZS04, 6380033002, AG2401连接头M8 -黑色（免煮）, 4020, D53003, 注塑车间, 余锋, 1, g, 0
+<==        Row: 1150837, product, 2026-09-17 02:13:55.0000000, MO2609093566, WORK26061387151A, ZS39, 6292834002, H33001E-HLG1-100E后罩 （浮雕：IVEK，丝印186C红色--IVEK） (有调速孔）-黑色, 310, H33001E, 注塑车间, 邓靖骞, 1, g, 0
+<==        Row: 1150838, product, 2026-09-17 02:14:08.0000000, MO2609029356, WORK26080009227P, ZS39, 6292834002, H33001E-HLG1-100E后罩 （浮雕：IVEK，丝印186C红色--IVEK） (有调速孔）-黑色, 30, H33001E, 注塑车间, 邓靖骞, 30000, g, 0
+<==        Row: 1150841, product, 2026-09-17 02:21:00.0000000, MO2609093566, WORK26061387151A, ZS39, 6292834002, H33001E-HLG1-100E后罩 （浮雕：IVEK，丝印186C红色--IVEK） (有调速孔）-黑色, 310, H33001E, 注塑车间, 超级用户, 1, g, 0
+<==        Row: 1150845, product, 2026-09-17 02:35:46.0000000, MO2609062003, WORK26081409021A, ZS19, 6290564004, 7019机壳(无字）-黑色/包胶黑色, 1010, 7019, 注塑车间, 李军, 999999, g, 0
+<==        Row: 1150846, product, 2026-09-17 02:36:05.0000000, MO2609062003, WORK26081409021A, ZS18, 6290564004, 7019机壳(无字）-黑色/包胶黑色, 1010, 7019, 注塑车间, 李军, 999999, g, 0
+<==        Row: 1150847, product, 2026-09-17 02:36:48.0000000, MO2609160012, WORK26081415103A, ZS19, 6291232020, A17003-9003开关手柄-津巴布韦黄/包胶黑色, 210, A17003, 注塑车间, 李军, 1, g, 0
+<==        Row: 1150849, product, 2026-09-17 04:03:00.0000000, MO2608275725, WORK26051369469A, ZS66, 6340353001, D55004E-左机壳（浮雕DNIPRO M,   DNIPRO移印172C橙色--KT，M移印白色 ）-黑色（免煮）PA66-30/包胶黑色-KT展脚, 35, D55004E, 注塑车间, 超级用户, 30000, g, 0
+<==        Row: 1150850, product, 2026-09-17 04:42:37.0000000, MO2609170801, WORK26081421991A, ZS22, 6290936005, 1071A后罩（调速款）-(11C-盈合), 3000, 1071, 注塑车间, 邓靖骞, 0, g, 0
+<==        Row: 1150851, product, 2026-09-17 04:52:16.0000000, MO2609170802, WORK26081419478A, ZS49, 6291807001, 1091机壳 （浮雕ACEM）-1585C橙色, 2015, A10091, 注塑车间, 许章严, 0, g, 0
+<==        Row: 1150852, product, 2026-09-17 05:28:12.0000000, MO2609170803, WORK26081416074A, ZS60, 6340047006, DD2004左机壳（无字）-华丽红（免煮）/包胶黑色, 100, D54005A, 注塑车间, 安亚, 1, g, 0
+<==        Row: 1150853, product, 2026-09-17 05:28:33.0000000, MO2609170804, WORK26081416073A, ZS60, 6340046004, DD2004右机壳   -华丽红（免煮）/包胶黑色, 100, D54005A, 注塑车间, 安亚, 0, g, 0
+<==        Row: 1150854, product, 2026-09-17 05:49:25.0000000, MO2609110997, WORK26081415217A, ZS33, 6291088002, 1038手柄（不调速）-黑色（包胶：黑色）, 300,  , 注塑车间, 邓靖骞, 0, g, 0
+<==        Row: 1150855, product, 2026-09-17 05:49:39.0000000, MO2609110998, WORK26081415217A, ZS33, 6291088002, 1038手柄（不调速）-黑色（包胶：黑色）, 300,  , 注塑车间, 邓靖骞, 30000, g, 0
+<==        Row: 1150856, product, 2026-09-17 06:12:12.0000000, MO2608296722, WORK26071407041A, ZS55, 6291631002, A10050-1050机壳（浮雕：DIVS 印刷白色）-黑色, 2420, A10050, 注塑车间, 许章严, 30000, g, 0
+<==        Row: 1150857, product, 2026-09-17 06:18:00.0000000, MO2609152136, WORK26090010227P, ZS61, 6291869001, 1802B机壳 （浮雕 POWERBILT,丝印白色）-185C红色, 50, A18002B, 注塑车间, 超级用户, 30000, g, 0
+<==        Row: 1150858, product, 2026-09-17 07:05:09.0000000, MO2609170779, WORK26081416189A, ZS10, 6292327001, D57003挂钩固定架-黑色, 400, D57003, 注塑车间, 李军, 1, g, 0
+<==        Row: 1150859, product, 2026-09-17 07:06:08.0000000, MO2609170805, WORK26091427302A, ZS10, 6291993001, G10MGB推块(343464970)-黑色, 3000, G10MGB, 注塑车间, 李军, 0, g, 0
+<==        Row: 1150860, product, 2026-09-17 07:20:17.0000000, MO2609170788, WORK26081421365A, ZS24, 6400054001, 1015转子风叶（带沉孔）/一次成型用, 11000, 1015, 注塑车间, 张祥富, 999999, g, 0
+<==        Row: 1150868, product, 2026-09-17 07:27:55.0000000, MO2609110998, WORK26081415217A, ZS33, 6291088002, 1038手柄（不调速）-黑色（包胶：黑色）, 300,  , 注塑车间, 龙绍周, 30000, g, 0
+<==        Row: 1150869, product, 2026-09-17 07:31:12.0000000, MO2609110998, WORK26081415217A, ZS33, 6291088002, 1038手柄（不调速）-黑色（包胶：黑色）, 300,  , 注塑车间, 龙绍周, 30000, g, 0
+<==        Row: 1150870, product, 2026-09-17 07:31:35.0000000, MO2609111000, WORK26081422505A, ZS33, 6291088002, 1038手柄（不调速）-黑色（包胶：黑色）, 600,  , 注塑车间, 龙绍周, 30000, g, 0
+<==        Row: 1150898, product, 2026-09-17 08:08:52.0000000, MO2609160775, WORK26081413103A, ZS11, 6292968001, D53010LED灯罩, 30, D53010, 注塑车间, 龙绍周, 999999, g, 0
+<==        Row: 1150900, product, 2026-09-17 08:16:51.0000000, MO2609170848, WORK26091426774A, ZS61, 6291871001, 1802B机壳 （浮雕FORTE,丝印白色）-185C红色, 305, A18002B, 注塑车间, 邹川, 0, g, 0
+<==        Row: 1150901, product, 2026-09-17 08:18:15.0000000, MO2609040373, WORK26081409454A, ZS29, 6291031010, H33001E-HLG1-100E后罩 （无字）（有调速孔）-426C灰色, 1720, H33001E, 注塑车间, 雷洲洲, 999999, g, 0
+<==        Row: 1150902, product, 2026-09-17 08:19:05.0000000, MO2609040373, WORK26081409454A, ZS39, 6291031010, H33001E-HLG1-100E后罩 （无字）（有调速孔）-426C灰色, 1720, H33001E, 注塑车间, 雷洲洲, 999999, g, 0
+<==        Row: 1150957, product, 2026-09-17 08:59:27.0000000, MO2609170900, WORK26091426181A, ZS16, 6291322004, 1063侧手柄（TOTAL）-TOTAL绿PA6-GF30 A471-S0056, 2000, 1063, 注塑车间, 余丽萍, 29998, g, 0
+<==        Row: 1150971, product, 2026-09-17 09:07:29.0000000, MO2609170933, WORK26071400318A, ZS55, 6340128001, AG2001.01左右手柄-  沃丰红（免煮）/包胶黑色, 2020, D53003A, 注塑车间, 陈浩东, 0, g, 0
+<==        Row: 1150973, product, 2026-09-17 09:10:59.0000000, MO2609170800, WORK26081419371A, ZS41, 6291568001, 1033机壳（浮雕FERM  印刷白色）-黑色, 605, 1033, 注塑车间, 陈浩东, 0, g, 0
+<==        Row: 1150982, product, 2026-09-17 09:18:00.0000000, MO2609100524, WORK26081419537A, ZS16, 6291322004, 1063侧手柄（TOTAL）-TOTAL绿PA6-GF30 A471-S0056, 15000, 1063, 注塑车间, 超级用户, 30000, g, 0
+<==        Row: 1150998, product, 2026-09-17 09:22:19.0000000, MO2609170959, WORK26081415246A, ZS08, 6292710001, 8811拨杆-黑色, 500,  , 注塑车间, 陶余友, 1, g, 0
+<==        Row: 1151002, product, 2026-09-17 09:27:00.0000000, MO2609170782, WORK26081419314A, ZS16, 6291322004, 1063侧手柄（TOTAL）-TOTAL绿PA6-GF30 A471-S0056, 5000, 1063, 注塑车间, 超级用户, 29999, g, 0
+<==        Row: 1151063, product, 2026-09-17 09:30:23.0000000, MO2609170796, WORK26081409966A, ZS06, 6290024005, WR2201B正反转推杆-186C红（免煮）-泰朝, 2020, 2201B, 注塑车间, 陶余友, 1, g, 0
+<==        Row: 1151064, product, 2026-09-17 09:34:20.0000000, MO2609171007, WORK26091431616A, ZS08, 6292010001, 1091推杆-黑色, 978, A10091, 注塑车间, 余丽萍, 1, g, 0
+<==        Row: 1151065, product, 2026-09-17 09:34:34.0000000, MO2609170959, WORK26081415246A, ZS08, 6292710001, 8811拨杆-黑色, 500,  , 注塑车间, 余丽萍, 1, g, 0
+<==        Row: 1151066, product, 2026-09-17 09:36:00.0000000, MO2608178658, WORK26061384895A, ZS12, 6292184001, HLG1-100挡风圈-本色, 15000,  , 注塑车间, 超级用户, 30000, g, 0
+<==        Row: 1151067, product, 2026-09-17 09:53:57.0000000, MO2609171008, WORK26071401155A, ZS30, 6290712009, HLG1-100B机壳-315C蓝色 PA66-35, 505, HLG1-100B, 注塑车间, 龙绍周, 0, g, 0
+<==        Row: 1151074, product, 2026-09-17 09:56:25.0000000, MO2609170850, WORK26061380738A, ZS29, 6400165001, 8825风叶-本色, 540, MAC95, 注塑车间, 黄雪雪, 0, g, 0
+<==        Row: 1151076, product, 2026-09-17 10:10:38.0000000, MO2609171020, WORK26081413103A, ZS11, 6292968001, D53010LED灯罩, 310, D53010, 注塑车间, 朱啟飞, 1, g, 0
+<==        Row: 1151094, product, 2026-09-17 10:21:11.0000000, MO2609083518, WORK26081411865A, ZS15, 6292500001, AG26开关手柄-黑色（包胶：黑色）, 600, A18007, 注塑车间, 訾涛, 514, g, 0
+<==        Row: 1151099, product, 2026-09-17 10:28:01.0000000, MO2609142013, WORK26081422441A, ZS62, 6291497026, 1030机壳 (无字)-牧田蓝, 2020,  , 注塑车间, 刘高江, 1, g, 0
+<==        Row: 1151105, product, 2026-09-17 11:07:46.0000000, MO2609171034, WORK26071404590A, ZS03, 6292032001, 1090防尘圈-本色, 10000, A10090, 注塑车间, 訾涛, 0, g, 0
+<==        Row: 1151106, product, 2026-09-17 11:09:49.0000000, MO2609171035, WORK26081422422A, ZS01, 6290764001, 4033刷盖-黑色, 900, A14033, 注塑车间, 訾涛, 0, g, 0
+<==        Row: 1151121, product, 2026-09-17 11:46:24.0000000, MO2609171078, WORK26081419334A, ZS42, 6291769003, WAG15761机壳（浮雕WADFOW，印刷1505C橙色)-盈合286C, 3000,  , 注塑车间, 陈浩东, 0, g, 0
+<==        Row: 1151170, product, 2026-09-17 11:52:53.0000000, MO2609171089, WORK26091426624A, ZS25, 6400014001, DD1603风叶, 4100, MDC48, 注塑车间, 雷洲洲, 0, g, 0
+<==        Row: 1151171, product, 2026-09-17 11:58:08.0000000, MO2609160776, WORK26071407103A, ZS09, 6291347001, 8276拨钮-本色, 500, A28276, 注塑车间, 注塑车间入库, 0, g, 0
+<==        Row: 1151172, product, 2026-09-17 12:00:00.0000000, MO2607282332, WORK26051369469A, ZS66, 6340353001, D55004E-左机壳（浮雕DNIPRO M,   DNIPRO移印172C橙色--KT，M移印白色 ）-黑色（免煮）PA66-30/包胶黑色-KT展脚, 2222, D55004E, 注塑车间, 超级用户, 29999, g, 0
+<==        Row: 1151177, product, 2026-09-17 12:09:50.0000000, MO2609171090, WORK26081415247A, ZS08, 6292310011, 8816开关扳机-黑色, 1000,  , 注塑车间, 陶余友, 0, g, 0
+<==        Row: 1151251, product, 2026-09-17 12:40:17.0000000, MO2609171165, WORK26071403296A, ZS13, 6292115001, 2035挡风圈-黑色, 1000, A20035, 注塑车间, 陶余友, 0, g, 0
+<==        Row: 1151252, product, 2026-09-17 12:41:19.0000000, MO2609170875, WORK26071401544A, ZS28, 6290046001, DD2402 档位调节盖板-黑色, 9000, DD2402, 注塑车间, 黄雪雪, 0, g, 0
+<==        Row: 1151436, product, 2026-09-17 13:08:29.0000000, MO2609171164, WORK26071407262A, ZS11, 6293170001, H33006-挡风圈-本色, 630, H33006, 注塑车间, 訾涛, 0, g, 0
+<==        Row: 1151615, product, 2026-09-17 14:30:08.0000000, MO2609170849, WORK26070008087P, ZS29, 6400165001, 8825风叶-本色, 460, MAC95, 注塑车间, 朱啟飞, 30000, g, 0
+<==        Row: 1151622, product, 2026-09-17 14:30:23.0000000, MO2609170850, WORK26061380738A, ZS29, 6400165001, 8825风叶-本色, 540, MAC95, 注塑车间, 朱啟飞, 0, g, 0
+<==        Row: 1151666, product, 2026-09-17 14:39:13.0000000, MO2609170798, WORK26081421693A, ZS06, 6290024008, D55001-WR2201B正反转推杆--CAT黄(免煮）, 1020, D55001, 注塑车间, 陶余友, 0, g, 0
+<==      Total: 65
+Closing non transactional SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@3de5abc8]

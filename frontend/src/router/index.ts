@@ -90,6 +90,12 @@ const routes: RouteRecordRaw[] = [
             component: () => import('@/views/qms/Report.vue'),
             meta: { title: '质量报表', icon: 'TrendCharts' },
           },
+          {
+            path: 'staff',
+            name: 'QmsStaff',
+            component: () => import('@/views/qms/Staff.vue'),
+            meta: { title: '质检人员维护', icon: 'User' },
+          },
         ],
       },
     ],

@@ -340,10 +340,10 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
     public List<AuditListItemDTO> getAuditList(String username) {
         String qcStaff = (username == null || username.trim().isEmpty()) ? null : username.trim();
         List<DbMaterialCall> calls = callMapper.selectAuditList(qcStaff);
-        if ((calls == null || calls.isEmpty()) && qcStaff != null) {
+        /***if ((calls == null || calls.isEmpty()) && qcStaff != null) {
             // 名下无待审时回退共享待审队列，避免工号/ID口径不一致导致漏单
             calls = callMapper.selectAuditList(null);
-        }
+        }***/
         if (calls == null || calls.isEmpty()) return Collections.emptyList();
 
         List<String> callIds = calls.stream().map(DbMaterialCall::getId).collect(Collectors.toList());
@@ -884,6 +884,8 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
             retEntry.setPpbomEntryId(ppbomEntry.getEntryId());
             retEntry.setPpbomEntrySeq(ppbomEntry.getEntrySeq());
             retEntry.setLocationId(batch.getLocationId());
+            // 计划跟踪号透传用料清单FMTONO：退料单分录FMtoNo须与用料清单一致，否则金蝶Save拦截
+            retEntry.setMtoNo(ppbom.getMtoNo());
             retEntries.add(retEntry);
 
             // 补料单分录
@@ -905,6 +907,8 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
             feedEntry.setPpbomEntrySeq(ppbomEntry.getEntrySeq());
             feedEntry.setOperId(ppbomEntry.getOperId());
             feedEntry.setLocationId(batch.getLocationId());
+            // 计划跟踪号透传用料清单FMTONO：补料单分录FMTONO须与用料清单一致，否则金蝶Save拦截
+            feedEntry.setMtoNo(ppbom.getMtoNo());
             feedEntries.add(feedEntry);
 
             if (headerStockOrg == null) {

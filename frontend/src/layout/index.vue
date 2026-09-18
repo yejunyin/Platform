@@ -79,6 +79,10 @@
             <el-icon><TrendCharts /></el-icon>
             <template #title>质量报表</template>
           </el-menu-item>
+          <el-menu-item index="/qms/staff">
+            <el-icon><User /></el-icon>
+            <template #title>质检人员维护</template>
+          </el-menu-item>
         </el-sub-menu>
       </el-menu>
 

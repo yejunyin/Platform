@@ -144,6 +144,7 @@ public class KingdeeService {
         private BigDecimal pickedQty;   // FPickedQty 已领数量
         private String unitNumber;      // FUnitID2.fnumber
         private String unitName;        // FUnitID2.fname
+        private String mtoNo;           // FMTONO 计划跟踪号（补料单分录FMTONO须与此一致，否则Save校验失败）
     }
 
     /**
@@ -219,6 +220,7 @@ public class KingdeeService {
         private Long ppbomEntryId;      // 用料清单分录内码
         private Integer ppbomEntrySeq;
         private Long locationId;        // 仓位值组合内码（启用仓位管理的仓库必传，FStockLocId）
+        private String mtoNo;           // 计划跟踪号（退料单保存键名FMtoNo，取用料清单FMTONO，不一致金蝶Save拦截）
     }
 
     /**
@@ -243,6 +245,7 @@ public class KingdeeService {
         private Integer ppbomEntrySeq;
         private Long operId;            // 工序内码（FOperId，可空）
         private Long locationId;        // 仓位值组合内码（启用仓位管理的仓库必传，FStockLocId）
+        private String mtoNo;           // 计划跟踪号（保存键名FMTONO，取用料清单FMTONO，不一致金蝶Save拦截）
     }
 
     // ==================================================================
@@ -536,10 +539,10 @@ public class KingdeeService {
         List<PpbomRow> result = new ArrayList<>();
         if (orderCodes == null || orderCodes.isEmpty()) return result;
         List<JsonNode> rows = executeBillQuery("PRD_PPBOM",
-                "FId,FBillNo,FMOBillNO,FMaterialID2.fnumber,FMaterialID2.fname,FMaterialModel1,FNeedQty2,FUnitID2.fnumber,FUnitID2.fname,FPickedQty",
-                "FMOBillNO in (" + inList(orderCodes) + ")", "", 1000);
+                "FId,FBillNo,FMOBillNO,FMaterialID2.fnumber,FMaterialID2.fname,FMaterialModel1,FNeedQty2,FUnitID2.fnumber,FUnitID2.fname,FPickedQty,FMTONO",
+                "FMOBillNO in (" + inList(orderCodes) + ") and FPickedQty>0", "", 1000);
         for (JsonNode row : rows) {
-            if (!row.isArray() || row.size() < 10) continue;
+            if (!row.isArray() || row.size() < 11) continue;
             PpbomRow r = new PpbomRow();
             r.setPpbomId(longOf(row.get(0)));
             r.setPpbomBillNo(textOf(row.get(1)));
@@ -551,6 +554,7 @@ public class KingdeeService {
             r.setUnitNumber(textOf(row.get(7)));
             r.setUnitName(textOf(row.get(8)));
             r.setPickedQty(decimalOf(row.get(9)));
+            r.setMtoNo(textOf(row.get(10)));
             result.add(r);
         }
         return result;
@@ -565,7 +569,7 @@ public class KingdeeService {
         if (materialCodes == null || materialCodes.isEmpty()) return result;
         List<JsonNode> rows = executeBillQuery("STK_Inventory",
                 "FMaterialId.FNumber,FStockOrgId.FNumber,FLot.FNumber,FStockId.FNumber,FStockId.FName,FSTOCKLOCID,FBaseQty",
-                "FMaterialId.FNumber in (" + inList(materialCodes) + ") and FBaseQty>0",
+                "FMaterialId.FNumber in (" + inList(materialCodes) + ") ",
                 "FUpdateTime asc", 2000);
         for (JsonNode row : rows) {
             if (!row.isArray() || row.size() < 7) continue;
@@ -726,6 +730,12 @@ public class KingdeeService {
                 entry.put("FKeeperTypeId", "BD_KeeperOrg");
                 entry.put("FKeeperId", Collections.singletonMap("FNumber", stockOrgNumber));
                 entry.put("FMOBillNo", e.getMoBillNo());
+                // 计划跟踪号：退料单保存键名为FMtoNo（与补料单FMTONO大小写不同），
+                // 必须与用料清单FMTONO一致，否则Save报"分录计划跟踪号与用料清单不一致"拦截；
+                // 用料清单为空（金蝶空值为单个空格）时不传，由金蝶按默认空值填充保持一致
+                if (e.getMtoNo() != null && !e.getMtoNo().trim().isEmpty()) {
+                    entry.put("FMtoNo", e.getMtoNo().trim());
+                }
                 entry.put("FMOId", e.getMoId());
                 entry.put("FMOEntryId", e.getMoEntryId());
                 entry.put("FMOEntrySeq", e.getMoEntrySeq());
@@ -873,6 +883,11 @@ public class KingdeeService {
                 entry.put("FEntrtyDescription", "补料申请人：" + applicantName);
                 entry.put("FStockStatusId", Collections.singletonMap("FNumber", "KCZT01_SYS"));
                 entry.put("FMoBillNo", e.getMoBillNo());
+                // 计划跟踪号：必须与用料清单FMTONO一致，否则Save报"分录计划跟踪号与用料清单不一致"拦截；
+                // 用料清单为空（金蝶空值为单个空格）时不传，由金蝶按默认空值填充保持一致
+                if (e.getMtoNo() != null && !e.getMtoNo().trim().isEmpty()) {
+                    entry.put("FMTONO", e.getMtoNo().trim());
+                }
                 entry.put("FMoEntryId", e.getMoEntryId());
                 entry.put("FPPBomEntryId", e.getPpbomEntryId());
                 if (e.getOperId() != null) {
