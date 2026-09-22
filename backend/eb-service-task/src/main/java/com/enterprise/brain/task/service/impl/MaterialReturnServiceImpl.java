@@ -933,15 +933,16 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
         }
 
         // 补料单：已审核跳过；有续传单号走续传；否则新建
-        String feedBillNo;
-        if (feedDone) {
+        // 注意：补料单创建逻辑当前被临时注释，feedBillNo置null（下游写入erpReplenishOrderNo允许为空）
+        String feedBillNo = null;
+        /***if (feedDone) {
             feedBillNo = resumeFeedBillNo;
         } else {
             KingdeeService.ReturnOrderResult feedResult = kingdeeService.createFeedOrder(
                     date, headerStockOrg, headerPrdOrg, headerWorkshop, headerStock, description,
                     call.getApplicantName(), feedEntries, resumeFeedBillNo);
             feedBillNo = feedResult.getBillNo();
-        }
+        }***/
         return new String[]{retBillNo, feedBillNo};
     }
 
