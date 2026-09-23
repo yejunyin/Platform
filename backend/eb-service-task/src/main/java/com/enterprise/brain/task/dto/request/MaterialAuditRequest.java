@@ -33,6 +33,12 @@ public class MaterialAuditRequest implements Serializable {
     @Schema(description = "退料类型ID(审核通过时必传, 取自接口8列表项returnTypeId; 驳回时不传)")
     private String returnTypeId;
 
+    @Schema(description = "退料原因ID(审核通过时必填, 审核人选择, 字典reasonType=2, 来源getReasons?reasonType=2; 驳回时不传)")
+    private String reasonId;
+
+    @Schema(description = "退料原因名称(审核通过时必填, 审核人选择; 驳回时不传)")
+    private String reasonText;
+
     @Schema(description = "驳回原因（驳回时必填）")
     private String rejectReason;
 

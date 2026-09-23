@@ -3,6 +3,13 @@
   "configurations": [
     {
       "type": "java",
+      "name": "MaterialReturnServiceImpl",
+      "request": "launch",
+      "mainClass": "com.enterprise.brain.task.service.impl.MaterialReturnServiceImpl",
+      "projectName": "eb-service-task"
+    },
+    {
+      "type": "java",
       "name": "附加到后端 (5005)",
       "request": "attach",
       "hostName": "localhost",

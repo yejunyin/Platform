@@ -176,6 +176,27 @@ public class KingdeeService {
     }
 
     /**
+     * 生产领料单发料记录行（PRD_PickMtrl，已审核）
+     * <p>退料单库存组织/仓库/仓位必须按领料来源还原（从哪里领料、退回哪里），
+     * 不得使用即时库存所在组织或默认组织。</p>
+     */
+    @Data
+    public static class PickStockRow {
+        private String billNo;            // FBillNo 生产领料单号(SOUT...)
+        private String date;              // FDate 领料日期
+        private String stockOrgNumber;    // FStockOrgId.FNumber 实际发料库存组织
+        private String materialCode;      // FMaterialId.FNumber
+        private String stockNumber;       // FStockId.FNumber 实际发料仓库
+        private Long stockLocId;          // FStockLocId 仓位值组合内码(0/null=未启用仓位)
+        private String lotNumber;         // FLot.FNumber 发料批次
+        private Long moEntryId;           // FMOEntryId 生产订单分录内码
+        private String moBillNo;          // FMOBillNo
+        private String ownerNumber;       // FOwnerId.FNumber 货主
+        private String keeperNumber;      // FKeeperId.FNumber 保管者
+        private BigDecimal baseActualQty; // FBaseActualQty 实际发料基本单位数量
+    }
+
+    /**
      * 生产订单明细信息（View PRD_MO，用于退料单 FMOEntryId/FMOEntrySeq/车间等）
      */
     @Data
@@ -695,6 +716,72 @@ public class KingdeeService {
     }
 
     /**
+     * M6：按生产订单分录+物料查询已审核生产领料单(PRD_PickMtrl)的实际发料记录，
+     * 用于退料单库存组织/仓库/仓位按领料来源还原（从哪里领料、退回哪里）。
+     * <p>字段键已在租户环境实测验证；按 FDate 降序返回（同物料多次领料时调用方优先取批次匹配行，否则取最近一次）。</p>
+     */
+    public List<PickStockRow> queryPickStock(Collection<Long> moEntryIds, Collection<String> materialCodes) {
+        List<PickStockRow> result = new ArrayList<>();
+        if (moEntryIds == null || moEntryIds.isEmpty() || materialCodes == null || materialCodes.isEmpty()) {
+            return result;
+        }
+        List<String> ids = moEntryIds.stream().filter(Objects::nonNull).map(String::valueOf).distinct()
+                .collect(java.util.stream.Collectors.toList());
+        List<String> codes = materialCodes.stream().filter(Objects::nonNull).map(String::trim)
+                .filter(s -> !s.isEmpty()).distinct().collect(java.util.stream.Collectors.toList());
+        if (ids.isEmpty() || codes.isEmpty()) return result;
+
+        String filter = "FDocumentStatus='C' and FMOEntryId in (" + String.join(",", ids)
+                + ") and FMaterialId.FNumber in (" + inList(codes) + ")";
+        List<JsonNode> rows = executeBillQuery("PRD_PickMtrl",
+                "FBillNo,FDate,FStockOrgId.FNumber,FMaterialId.FNumber,FStockId.FNumber,FStockLocId,"
+                        + "FLot.FNumber,FMOEntryId,FMOBillNo,FOwnerId.FNumber,FKeeperId.FNumber,FBaseActualQty",
+                filter, "FDate desc", 2000);
+        for (JsonNode row : rows) {
+            if (!row.isArray() || row.size() < 12) continue;
+            PickStockRow r = new PickStockRow();
+            r.setBillNo(textOf(row.get(0)));
+            r.setDate(textOf(row.get(1)));
+            r.setStockOrgNumber(textOf(row.get(2)));
+            r.setMaterialCode(textOf(row.get(3)));
+            r.setStockNumber(textOf(row.get(4)));
+            r.setStockLocId(longOf(row.get(5)));
+            r.setLotNumber(textOf(row.get(6)));
+            r.setMoEntryId(longOf(row.get(7)));
+            r.setMoBillNo(textOf(row.get(8)));
+            r.setOwnerNumber(textOf(row.get(9)));
+            r.setKeeperNumber(textOf(row.get(10)));
+            r.setBaseActualQty(decimalOf(row.get(11)));
+            result.add(r);
+        }
+        return result;
+    }
+
+    /**
+     * M6：View 单据表头库存组织编码（FStockOrgId.FNumber）。
+     * 用于重试续传时判断已保存退料单的库存组织是否与领料来源一致：组织不一致的旧草稿不得续传，需重新建单。
+     * 查询失败返回null（由调用方按续传策略处理）。
+     */
+    public String viewBillStockOrg(String formId, String billNo) {
+        try {
+            Map<String, Object> body = baseRequestBody();
+            Map<String, Object> numberParam = new HashMap<>();
+            numberParam.put("Number", billNo);
+            body.put("parameters", Arrays.asList(formId, numberParam));
+            String responseBody = postWithSession(VIEW_PATH, body);
+            JsonNode root = objectMapper.readTree(responseBody);
+            JsonNode result = root.path("Result").path("Result");
+            if (result.isMissingNode() || result.isNull()) return null;
+            String org = result.path("StockOrgId").path("Number").asText(null);
+            log.info("[Kingdee] View({},{}) StockOrgId.FNumber={}", formId, billNo, org);
+            return org;
+        } catch (Exception e) {
+            log.warn("[Kingdee] View({},{}) 库存组织查询失败: {}", formId, billNo, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * M6：生成生产退料单（Save → Submit → Audit），返回单号
      * <p>分录通过 FSrcBillType/FPPBomEntryId/FPPBomBillNo/FEntity_Link 建立与用料清单(PRD_PPBOM)的关联，
      * 保证金蝶中可上查到生产用料清单。</p>
@@ -730,12 +817,10 @@ public class KingdeeService {
                 entry.put("FKeeperTypeId", "BD_KeeperOrg");
                 entry.put("FKeeperId", Collections.singletonMap("FNumber", stockOrgNumber));
                 entry.put("FMOBillNo", e.getMoBillNo());
-                // 计划跟踪号：退料单保存键名为FMtoNo（与补料单FMTONO大小写不同），
-                // 必须与用料清单FMTONO一致，否则Save报"分录计划跟踪号与用料清单不一致"拦截；
-                // 用料清单为空（金蝶空值为单个空格）时不传，由金蝶按默认空值填充保持一致
-                if (e.getMtoNo() != null && !e.getMtoNo().trim().isEmpty()) {
-                    entry.put("FMtoNo", e.getMtoNo().trim());
-                }
+                // 计划跟踪号（方案A：保存前对齐用料清单FMTONO）：退料单保存键名为FMtoNo（与补料单FMTONO大小写不同），
+                // 原样填入用料清单分录跟踪号；用料清单分录为空跟踪号时也必须传空串，不能省略/填null或默认值，
+                // 否则金蝶仍判"分录计划跟踪号与用料清单不一致"
+                entry.put("FMtoNo", e.getMtoNo() == null ? "" : e.getMtoNo().trim());
                 entry.put("FMOId", e.getMoId());
                 entry.put("FMOEntryId", e.getMoEntryId());
                 entry.put("FMOEntrySeq", e.getMoEntrySeq());
@@ -781,22 +866,11 @@ public class KingdeeService {
             packet.put("IsDeleteEntry", true);
             packet.put("Model", model);
 
-            String packetJson;
-            try {
-                packetJson = objectMapper.writeValueAsString(packet);
-            } catch (Exception e) {
-                throw new KingdeeApiException("序列化退料单报文失败: " + e.getMessage());
-            }
-
-            Map<String, Object> saveBody = baseRequestBody();
-            saveBody.put("parameters", Arrays.asList("PRD_ReturnMtrl", packetJson));
-            String saveResp = postWithSession(SAVE_PATH, saveBody);
-            log.info("[Kingdee] Save(PRD_ReturnMtrl) 响应: {}", truncate(saveResp, 2000));
-
-            JsonNode saveResult = parseOperationResult(saveResp, "退料单保存");
+            // 方案B：Save交互警告（计划跟踪号与用料清单不一致）由saveBillWithInteraction识别并重放
+            JsonNode saveResult = saveBillWithInteraction("PRD_ReturnMtrl", packet, "退料单保存");
             billNo = saveResult.path("Number").asText(null);
             if (billNo == null || billNo.isEmpty()) {
-                throw new KingdeeApiException("退料单保存成功但未返回单号: " + truncate(saveResp));
+                throw new KingdeeApiException("退料单保存成功但未返回单号");
             }
         }
 
@@ -883,11 +957,8 @@ public class KingdeeService {
                 entry.put("FEntrtyDescription", "补料申请人：" + applicantName);
                 entry.put("FStockStatusId", Collections.singletonMap("FNumber", "KCZT01_SYS"));
                 entry.put("FMoBillNo", e.getMoBillNo());
-                // 计划跟踪号：必须与用料清单FMTONO一致，否则Save报"分录计划跟踪号与用料清单不一致"拦截；
-                // 用料清单为空（金蝶空值为单个空格）时不传，由金蝶按默认空值填充保持一致
-                if (e.getMtoNo() != null && !e.getMtoNo().trim().isEmpty()) {
-                    entry.put("FMTONO", e.getMtoNo().trim());
-                }
+                // 计划跟踪号（方案A）：与用料清单FMTONO原样对齐；为空时也必须传空串，不能省略/填null
+                entry.put("FMTONO", e.getMtoNo() == null ? "" : e.getMtoNo().trim());
                 entry.put("FMoEntryId", e.getMoEntryId());
                 entry.put("FPPBomEntryId", e.getPpbomEntryId());
                 if (e.getOperId() != null) {
@@ -1021,6 +1092,133 @@ public class KingdeeService {
         ReturnOrderResult result = new ReturnOrderResult();
         result.setBillNo(billNo);
         return result;
+    }
+
+    /**
+     * 方案B：Save 调用并处理"计划跟踪号与用料清单不一致"等需交互确认的警告。
+     * <p>金蝶 WebAPI 无界面可点"是"：检测到该交互警告时，从当次响应中提取交互标识
+     * (MsgId/InterationFlag，不同补丁版本字段可能不同)，用同一数据包在 packet.InterationFlags
+     * 中带回标识重新调用保存（标识分号分隔），等同于用户点击"是"。</p>
+     * <p>标识不写死：仅从当次响应提取；响应未回传标识时使用配置 kingdee.mto-interaction-flag 兜底，
+     * 仍无标识则按普通失败抛出。最多重放2轮，避免死循环。</p>
+     */
+    private JsonNode saveBillWithInteraction(String formId, Map<String, Object> packet, String operation) {
+        packet.putIfAbsent("InterationFlags", "");
+        packet.putIfAbsent("IgnoreInterationFlag", "");
+
+        String responseBody = postSaveForm(formId, packet);
+        log.info("[Kingdee] Save({}) 响应: {}", formId, truncate(responseBody, 2000));
+
+        Set<String> usedFlags = new LinkedHashSet<>();
+        for (int round = 0; round < 2; round++) {
+            JsonNode root;
+            try {
+                root = objectMapper.readTree(responseBody);
+            } catch (Exception e) {
+                throw new KingdeeApiException("解析" + operation + "响应失败: " + e.getMessage());
+            }
+            JsonNode status = root.path("Result").path("ResponseStatus");
+            if (status.path("IsSuccess").asBoolean(false)) {
+                return root.path("Result");
+            }
+            // 非计划跟踪号类交互警告，不做重放，走标准错误解析
+            if (!containsMtoInteractionHint(status)) {
+                break;
+            }
+            List<String> flags = extractInteractionFlags(status);
+            if (flags.isEmpty()) {
+                String fallback = kingdeeProperties.getMtoInteractionFlag();
+                if (fallback != null && !fallback.trim().isEmpty()) {
+                    flags = Arrays.stream(fallback.split(";"))
+                            .map(String::trim).filter(s -> !s.isEmpty())
+                            .collect(java.util.stream.Collectors.toList());
+                }
+            }
+            flags.removeIf(usedFlags::contains);
+            if (flags.isEmpty()) {
+                log.warn("[Kingdee] {}(formId={}) 检测到计划跟踪号交互警告，但响应未回传交互标识且未配置兜底标识，无法自动重放",
+                        operation, formId);
+                break;
+            }
+            usedFlags.addAll(flags);
+            packet.put("InterationFlags", String.join(";", usedFlags));
+            log.info("[Kingdee] {}(formId={}) 检测到交互警告，携带 InterationFlags={} 重放保存(第{}轮)",
+                    operation, formId, usedFlags, round + 1);
+            responseBody = postSaveForm(formId, packet);
+            log.info("[Kingdee] Save({}) 重放响应: {}", formId, truncate(responseBody, 2000));
+        }
+        return parseOperationResult(responseBody, operation);
+    }
+
+    /** 序列化packet并调用Save */
+    private String postSaveForm(String formId, Map<String, Object> packet) {
+        String packetJson;
+        try {
+            packetJson = objectMapper.writeValueAsString(packet);
+        } catch (Exception e) {
+            throw new KingdeeApiException("序列化" + formId + "保存报文失败: " + e.getMessage());
+        }
+        Map<String, Object> saveBody = baseRequestBody();
+        saveBody.put("parameters", Arrays.asList(formId, packetJson));
+        return postWithSession(SAVE_PATH, saveBody);
+    }
+
+    /** 判断响应状态中是否包含"计划跟踪号与用料清单不一致/是否继续保存"交互警告文案 */
+    private boolean containsMtoInteractionHint(JsonNode status) {
+        if (status == null || status.isMissingNode()) return false;
+        String joined = collectMessageTexts(status).toString();
+        return joined.contains("计划跟踪号") && (joined.contains("用料清单") || joined.contains("不一致"));
+    }
+
+    /** 递归收集 Errors/Warnings/SuccessMessages 中的 Message 文本 */
+    private StringBuilder collectMessageTexts(JsonNode node) {
+        StringBuilder sb = new StringBuilder();
+        collectMessageTexts(node, sb);
+        return sb;
+    }
+
+    private void collectMessageTexts(JsonNode node, StringBuilder sb) {
+        if (node == null || node.isNull()) return;
+        if (node.isObject()) {
+            JsonNode msg = node.get("Message");
+            if (msg != null && msg.isTextual()) sb.append(msg.asText()).append(';');
+            node.fields().forEachRemaining(en -> collectMessageTexts(en.getValue(), sb));
+        } else if (node.isArray()) {
+            node.forEach(n -> collectMessageTexts(n, sb));
+        }
+    }
+
+    /**
+     * 从响应状态节点中提取交互标识：递归查找键名含 interation/interaction 或 MsgId 的非空标量值。
+     * 金蝶不同补丁版本可能将标识放在 ResponseStatus 或各 Errors/Warnings 条目下。
+     */
+    private List<String> extractInteractionFlags(JsonNode node) {
+        Set<String> flags = new LinkedHashSet<>();
+        collectInteractionFlags(node, flags);
+        return new ArrayList<>(flags);
+    }
+
+    private void collectInteractionFlags(JsonNode node, Set<String> flags) {
+        if (node == null || node.isNull()) return;
+        if (node.isObject()) {
+            node.fields().forEachRemaining(en -> {
+                String key = en.getKey();
+                JsonNode v = en.getValue();
+                if (v != null && v.isValueNode() && !v.isNull()) {
+                    String lk = key.toLowerCase();
+                    String text = v.asText("").trim();
+                    if (!text.isEmpty() && (lk.contains("interation") || lk.contains("interaction")
+                            || lk.equals("msgid"))) {
+                        // 标识可能分号分隔多个
+                        Arrays.stream(text.split(";")).map(String::trim)
+                                .filter(s -> !s.isEmpty()).forEach(flags::add);
+                    }
+                }
+                collectInteractionFlags(v, flags);
+            });
+        } else if (node.isArray()) {
+            node.forEach(n -> collectInteractionFlags(n, flags));
+        }
     }
 
     /** 解析 Save/Submit/Audit 操作响应，业务失败时抛出异常 */

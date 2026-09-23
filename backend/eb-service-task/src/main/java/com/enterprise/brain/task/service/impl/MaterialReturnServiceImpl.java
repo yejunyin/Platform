@@ -2,6 +2,7 @@ package com.enterprise.brain.task.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.enterprise.brain.task.TaskServiceApplication;
 import com.enterprise.brain.task.config.MaterialProperties;
 import com.enterprise.brain.task.dto.request.MaterialAuditRequest;
 import com.enterprise.brain.task.dto.request.MaterialSubmitRequest;
@@ -26,6 +27,9 @@ import com.enterprise.brain.task.service.MaterialReturnService;
 import com.enterprise.brain.task.service.WmsService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,8 +54,9 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final DateTimeFormatter FMT_DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
-    /** 字典类型：1退料类型(金蝶退料单必需, FReturnType枚举值) 2退料原因(业务描述) */
+    /** 字典类型：1退料类型(金蝶退料单必需, FReturnType枚举值) 2退料原因(业务描述, 审核人审核通过时选择) */
     private static final String REASON_TYPE_RETURN_TYPE = "1";
+    private static final String REASON_TYPE_RETURN_REASON = "2";
 
     /** ERP退料单生成最大重试次数 */
     private static final int ERP_MAX_ATTEMPTS = 3;
@@ -256,8 +261,10 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
         call.setQcStaffId(request.getQcStaffId());
         call.setQcStaffCode(request.getQcStaffCode());
         call.setQcStaffName(request.getQcStaffName());
-        call.setReasonId(request.getReasonId());
-        call.setReasonText(request.getReasonText());
+        // 2026-09-22变更：退料原因(REASON_ID/REASON_TEXT)改由质检审核人审核通过时填写，
+        // 提交时即使前端仍传 reasonId/reasonText 也忽略，申请单落库为空
+        call.setReasonId(null);
+        call.setReasonText(null);
         call.setReturnType(request.getReturnTypeId());
         call.setReturnTypeName(request.getReturnTypeName());
         call.setStatus(DbMaterialCall.STATUS_PENDING_AUDIT);
@@ -442,13 +449,33 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
             throw new IllegalArgumentException("退料类型不合法：" + returnType);
         }
         String returnTypeName = returnTypeDict.getName();
+
+        // 2026-09-22变更：退料原因改由质检审核人在审核通过时选择(reasonType=2字典)，必填；
+        // 校验通过后回写申请单 REASON_ID/REASON_TEXT，M6生成金蝶退料单时写入FReturnReason
+        String reasonId = request.getReasonId() == null ? null : request.getReasonId().trim();
+        String reasonText = request.getReasonText() == null ? null : request.getReasonText().trim();
+        if (reasonId == null || reasonId.isEmpty() || reasonText == null || reasonText.isEmpty()) {
+            // 文档约定：缺失返回 status=-1, msg=退料原因为必填项
+            return MaterialResult.error(-1, "退料原因为必填项");
+        }
+        DbMaterialReason reasonDict = reasonMapper.selectByIdAndType(reasonId, REASON_TYPE_RETURN_REASON);
+        if (reasonDict == null) {
+            return MaterialResult.error(-1, "退料原因不合法：" + reasonId);
+        }
+        // 名称以审核请求回传为准(字典名校验兜底)
+        if (reasonDict.getName() != null && !reasonDict.getName().isEmpty()) {
+            reasonText = reasonDict.getName();
+        }
+        final String finalReasonText = reasonText;
         boolean force = Objects.equals(request.getForceFlag(), 1);
 
-        // 10 → 20 批次匹配中（RETURN_TYPE以审核回传值为准覆盖写入）
+        // 10 → 20 批次匹配中（RETURN_TYPE/REASON_* 均以审核回传值为准覆盖写入）
         int affected = updateStatus(call.getId(), DbMaterialCall.STATUS_PENDING_AUDIT,
                 DbMaterialCall.STATUS_MATCHING, uw -> uw
                         .set(DbMaterialCall::getReturnType, returnType)
                         .set(DbMaterialCall::getReturnTypeName, returnTypeName)
+                        .set(DbMaterialCall::getReasonId, reasonId)
+                        .set(DbMaterialCall::getReasonText, finalReasonText)
                         .set(DbMaterialCall::getAuditBy, auditBy)
                         .set(DbMaterialCall::getAuditTime, LocalDateTime.now())
                         .set(DbMaterialCall::getErrorMsg, null));
@@ -612,6 +639,111 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
     }
 
     // ==================================================================
+    // 运维工具：按申请单号(TL...)强制重新推送金蝶生产退料单
+    // ==================================================================
+
+    /**
+     * 强制重新推送指定申请单的金蝶生产退料单（仓库出错等场景使用）。
+     * <p>不复用、不续传 DB_MATERIAL_CALL.ERP_ORDER_NO 中的旧单号，全部按最新生产领料来源
+     * （queryPickStock 实际发料仓库/库存组织）重新构建分录并调用
+     * {@link KingdeeService#createReturnOrder} 建单；旧的错误退料单需人工在金蝶中删除/作废。
+     * 成功后新单号回写 ERP_ORDER_NO，申请单状态不变，WMS流程不重复触发。</p>
+     *
+     * @param callNo 补退料申请单号，如 TL20260921140022102
+     * @return 新生成的金蝶退料单号（跨组织拆单时为逗号分隔的多个单号）
+     */
+    public String repushReturnOrder(String callNo) {
+        if (callNo == null || callNo.trim().isEmpty()) {
+            throw new IllegalArgumentException("申请单号 callNo 不能为空");
+        }
+        String no = callNo.trim();
+        DbMaterialCall call = callMapper.selectOne(
+                new QueryWrapper<DbMaterialCall>().eq("CALL_NO", no));
+        if (call == null) {
+            throw new IllegalArgumentException("补退料申请单不存在: " + no);
+        }
+        List<DbMaterialCallItem> items = itemMapper.selectByCallId(call.getId());
+        List<DbMaterialCallBatch> batches = batchMapper.selectByCallId(call.getId());
+        if (items == null || items.isEmpty()) {
+            throw new IllegalStateException("申请单" + no + "无物料明细，无法重推退料单");
+        }
+        if (batches == null || batches.isEmpty()) {
+            throw new IllegalStateException("申请单" + no + "无批次匹配结果，无法重推退料单");
+        }
+
+        String oldBillNos = call.getErpOrderNo();
+        log.warn("[补退料-重推] 申请{} 开始强制重推退料单，旧金蝶退料单号={}（重推后旧单需人工在金蝶删除/作废）",
+                no, oldBillNos);
+
+        // createErpOrdersWithRetry 以 call.erpOrderNo 作为续传清单；内存中清空即强制全部重新建单，
+        // 不会续传仓库错误的旧草稿（仅内存对象生效，DB回写在成功/部分失败时处理）
+        call.setErpOrderNo(null);
+        call.setErpReplenishOrderNo(null);
+
+        String[] erpBillNos;
+        try {
+            erpBillNos = createErpOrdersWithRetry(call, items, batches);
+        } catch (ErpCreateFailedException e) {
+            // 部分库存组织分组已Save成功：先把新单号落库，避免再次执行时重复建单（可据此续传）
+            if (e.getBillNo() != null && !e.getBillNo().isEmpty()) {
+                callMapper.update(null, new LambdaUpdateWrapper<DbMaterialCall>()
+                        .eq(DbMaterialCall::getId, call.getId())
+                        .set(DbMaterialCall::getErpOrderNo, e.getBillNo())
+                        .set(DbMaterialCall::getUpdateTime, LocalDateTime.now()));
+                log.error("[补退料-重推] 申请{} 重推部分失败，已Save的新退料单号{}已回写ERP_ORDER_NO",
+                        no, e.getBillNo());
+            }
+            throw e;
+        }
+
+        String newBillNos = erpBillNos[0];
+        callMapper.update(null, new LambdaUpdateWrapper<DbMaterialCall>()
+                .eq(DbMaterialCall::getId, call.getId())
+                .set(DbMaterialCall::getErpOrderNo, newBillNos)
+                .set(DbMaterialCall::getUpdateTime, LocalDateTime.now()));
+        log.warn("[补退料-重推] 申请{} 重推完成：旧单号={} → 新退料单号={}", no, oldBillNos, newBillNos);
+        return newBillNos;
+    }
+
+    /**
+     * 运维入口（IDE 中直接 Run 本类的 main）：按申请单号强制重新推送生产退料单。
+     * <p>默认重推 {@value #DEFAULT_REPUSH_CALL_NO}；也可用启动参数覆盖，例如：
+     * java ...MaterialReturnServiceImpl TL20260921140022102</p>
+     */
+    public static void main(String[] args) {
+        
+        String callNo = "TL20260916084822494";
+        //来源安灯补退料申请单: TL20260916084822494
+        SpringApplication app = new SpringApplication(TaskServiceApplication.class);
+        // 工具模式：不启动Web容器（不占用8081端口），不注册/拉取Nacos配置
+        app.setWebApplicationType(WebApplicationType.NONE);
+        app.setDefaultProperties(Map.of(
+                "spring.cloud.nacos.discovery.enabled", "false",
+                "spring.cloud.nacos.config.enabled", "false",
+                // 重推退料单不依赖Redis；本地未启动Redis时排除Redisson自动装配，避免启动期强连6379失败
+                "spring.autoconfigure.exclude", "org.redisson.spring.starter.RedissonAutoConfigurationV2"));
+        ConfigurableApplicationContext ctx = app.run(new String[0]);
+
+        int exitCode = 1;
+        try {
+            String newBillNos = ctx.getBean(MaterialReturnServiceImpl.class).repushReturnOrder(callNo);
+            System.out.println("========== 生产退料单重推成功 ==========");
+            System.out.println("申请单号: " + callNo);
+            System.out.println("新金蝶退料单号: " + newBillNos);
+            System.out.println("注意：旧的错误退料单请人工在金蝶中删除/作废；"
+                    + "当前 createReturnOrder 仅执行Save，提交/审核按金蝶现有流程处理。");
+            exitCode = 0;
+        } catch (Exception e) {
+            System.err.println("========== 生产退料单重推失败 ==========");
+            System.err.println("申请单号: " + callNo);
+            e.printStackTrace();
+        } finally {
+            SpringApplication.exit(ctx);
+            System.exit(exitCode);
+        }
+    }
+
+    // ==================================================================
     // M3 FIFO 批次匹配
     // ==================================================================
 
@@ -753,27 +885,25 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
     /**
      * 生成退料单+补料单（带重试）。重试幂等：已生成且已审核的单据直接跳过，
      * Save成功但Submit/Audit失败的单据按续传处理，避免重复建单。
-     * @return [退料单号, 补料单号]
+     * <p>2026-09-22变更：退料单按领料来源库存组织拆单，erpOrderNo 可能为逗号分隔的多个金蝶单号。</p>
+     * @return [退料单号(多个逗号分隔), 补料单号]
      */
     private String[] createErpOrdersWithRetry(DbMaterialCall call, List<DbMaterialCallItem> items,
                                               List<DbMaterialCallBatch> batches) {
-        String resumeRetBillNo = call.getErpOrderNo();          // 之前Save成功但未完成审核的退料单号，续传避免重复建单
-        String resumeFeedBillNo = call.getErpReplenishOrderNo(); // 之前Save成功但未完成审核的补料单号
-        // 已审核(C)的单据视为已生成成功，重试时跳过（如退料单成功后补料单失败的场景）
-        boolean retDone = isBillAudited("PRD_ReturnMtrl", resumeRetBillNo);
-        boolean feedDone = isBillAudited("PRD_FeedMtrl", resumeFeedBillNo);
+        String resumeRetBillNos = call.getErpOrderNo();           // 已生成退料单号(可能多个, 逗号分隔)
+        String resumeFeedBillNo = call.getErpReplenishOrderNo();  // 之前Save成功但未完成审核的补料单号
 
         Exception lastError = null;
         for (int attempt = 1; attempt <= ERP_MAX_ATTEMPTS; attempt++) {
             try {
-                return buildAndCreateErpOrders(call, items, batches,
-                        resumeRetBillNo, retDone, resumeFeedBillNo, feedDone);
+                return buildAndCreateErpOrders(call, items, batches, resumeRetBillNos, resumeFeedBillNo);
             } catch (KingdeeService.BillStageException e) {
                 if (e.getBillNo() != null && !e.getBillNo().isEmpty()) {
                     if ("PRD_FeedMtrl".equals(e.getFormId())) {
                         resumeFeedBillNo = e.getBillNo();
                     } else {
-                        resumeRetBillNo = e.getBillNo();
+                        // 退料单按组织拆单，已Save成功的分组单号合并到续传清单，避免重复建单
+                        resumeRetBillNos = mergeCsv(resumeRetBillNos, e.getBillNo());
                     }
                 }
                 lastError = e;
@@ -787,7 +917,7 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
                 sleepQuietly(1000L * attempt);
             }
         }
-        throw new ErpCreateFailedException(resumeRetBillNo, resumeFeedBillNo,
+        throw new ErpCreateFailedException(resumeRetBillNos, resumeFeedBillNo,
                 "金蝶退料单/补料单生成重试" + ERP_MAX_ATTEMPTS + "次均失败: "
                         + (lastError == null ? "未知错误" : lastError.getMessage()));
     }
@@ -798,10 +928,21 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
         return "C".equals(kingdeeService.viewBillDocumentStatus(formId, billNo));
     }
 
+    /** 退料单分组：同一库存组织(+生产组织)一张退料单，跨组织发料强制拆单 */
+    private static class ReturnOrderGroup {
+        final String stockOrgNumber;
+        final String prdOrgNumber;
+        final List<KingdeeService.ReturnOrderEntry> entries = new ArrayList<>();
+
+        ReturnOrderGroup(String stockOrgNumber, String prdOrgNumber) {
+            this.stockOrgNumber = stockOrgNumber;
+            this.prdOrgNumber = prdOrgNumber;
+        }
+    }
+
     private String[] buildAndCreateErpOrders(DbMaterialCall call, List<DbMaterialCallItem> items,
                                              List<DbMaterialCallBatch> batches,
-                                             String resumeRetBillNo, boolean retDone,
-                                             String resumeFeedBillNo, boolean feedDone) {
+                                             String resumeRetBillNos, String resumeFeedBillNo) {
         Map<String, DbMaterialCallItem> itemMap = items.stream()
                 .collect(Collectors.toMap(DbMaterialCallItem::getId, i -> i, (a, b) -> a));
 
@@ -832,19 +973,32 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
         log.info("[补退料] 申请{} ppbomMap键={}, ppbomEntryMap键={}", call.getCallNo(),
                 ppbomMap.keySet(), ppbomEntryMap.keySet());
 
-        // 组装分录（退料单 + 补料单）
-        // 退料类型 → 金蝶字段映射：FReturnType=退料类型枚举值, FReturnReason.FNumber=前台所选退料原因编码(trim)
-        // （金蝶保存生产退料单必需字段，缺失将导致Save失败置状态31或后台退料原因为空）
-        String returnReasonCode = call.getReasonId() == null ? null : call.getReasonId().trim();
-        if (returnReasonCode != null && returnReasonCode.isEmpty()) {
-            returnReasonCode = null;
+        // ===== 退料仓库/库存组织按生产领料单来源还原（从哪里领料、退回哪里）=====
+        Set<Long> moEntryIds = batches.stream()
+                .map(b -> moEntryMap.get(itemMap.get(b.getCallItemId()).getOrderCode()).getEntryId())
+                .filter(Objects::nonNull).collect(Collectors.toCollection(LinkedHashSet::new));
+        Set<String> pickMaterialCodes = batches.stream()
+                .map(DbMaterialCallBatch::getMaterialCode).collect(Collectors.toCollection(LinkedHashSet::new));
+        List<KingdeeService.PickStockRow> pickRows =
+                kingdeeService.queryPickStock(moEntryIds, pickMaterialCodes);
+        log.info("[补退料] 申请{} 查到生产领料发料记录{}条", call.getCallNo(), pickRows.size());
+
+        // 退料原因 → 金蝶FReturnReason.FNumber：审核人选择的reasonType=2字典REASON_ID即金蝶编码，
+        // 字典维护了ERP_CODE时优先取ERP_CODE（租户模板映射）
+        String returnReasonCode = null;
+        if (call.getReasonId() != null && !call.getReasonId().trim().isEmpty()) {
+            String rid = call.getReasonId().trim();
+            DbMaterialReason reasonDict = reasonMapper.selectByIdAndType(rid, REASON_TYPE_RETURN_REASON);
+            if (reasonDict != null && reasonDict.getErpCode() != null && !reasonDict.getErpCode().trim().isEmpty()) {
+                returnReasonCode = reasonDict.getErpCode().trim();
+            } else {
+                returnReasonCode = rid;
+            }
         }
-        List<KingdeeService.ReturnOrderEntry> retEntries = new ArrayList<>();
+
+        // 按库存组织(+生产组织)分组退料单分录
+        Map<String, ReturnOrderGroup> retGroups = new LinkedHashMap<>();
         List<KingdeeService.FeedOrderEntry> feedEntries = new ArrayList<>();
-        String headerStockOrg = null;
-        String headerPrdOrg = null;
-        String headerWorkshop = null;
-        String headerStock = null;
         for (DbMaterialCallBatch batch : batches) {
             DbMaterialCallItem item = itemMap.get(batch.getCallItemId());
             KingdeeService.MoEntryDetail moEntry = moEntryMap.get(item.getOrderCode());
@@ -862,16 +1016,20 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
                 throw new RuntimeException("物料[" + batch.getMaterialCode() + "]用料清单分录信息缺失，无法建立上查关联");
             }
 
-            // 退料单分录
+            // 取该批次物料在生产领料单上的实际发料仓库/库存组织（查不到必须拦截，不得回退默认组织）
+            KingdeeService.PickStockRow pick = resolvePickStock(call, pickRows,
+                    moEntry.getEntryId(), item.getOrderCode(), batch.getMaterialCode(), batch.getBatchNo());
+
+            // 退料单分录：仓库/仓位取领料来源，不再使用即时库存仓库或默认组织
             KingdeeService.ReturnOrderEntry retEntry = new KingdeeService.ReturnOrderEntry();
             retEntry.setMaterialNumber(batch.getMaterialCode());
             retEntry.setUnitNumber(unitNumber);
             retEntry.setQty(batch.getQty());
             // 退料类型取申请单RETURN_TYPE(发起人提交时选择, 审核通过时以回传值为准覆盖)
             retEntry.setReturnType(call.getReturnType());
-            // 金蝶退料原因(FReturnReason.FNumber)取退料类型字典配置的ERP_CODE, 不能用业务退料原因reasonId
+            // 退料原因取审核人审核通过时回写的值(REASON_ID → FReturnReason.FNumber)
             retEntry.setReturnReasonCode(returnReasonCode);
-            retEntry.setStockNumber(batch.getWarehouseCode());
+            retEntry.setStockNumber(pick.getStockNumber());
             retEntry.setLotNumber(batch.getBatchNo());
             retEntry.setMoBillNo(item.getOrderCode());
             retEntry.setMoId(moEntry.getMoId());
@@ -883,12 +1041,18 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
             retEntry.setPpbomBillNo(ppbomEntry.getPpbomBillNo());
             retEntry.setPpbomEntryId(ppbomEntry.getEntryId());
             retEntry.setPpbomEntrySeq(ppbomEntry.getEntrySeq());
-            retEntry.setLocationId(batch.getLocationId());
-            // 计划跟踪号透传用料清单FMTONO：退料单分录FMtoNo须与用料清单一致，否则金蝶Save拦截
+            // 仓位优先取领料单分录实际发料仓位；领料单未启用仓位(0)时回退批次匹配仓位
+            retEntry.setLocationId(pick.getStockLocId() != null && pick.getStockLocId() > 0
+                    ? pick.getStockLocId() : batch.getLocationId());
+            // 计划跟踪号透传用料清单FMTONO（方案A对齐，空值传空串由KingdeeService处理）
             retEntry.setMtoNo(ppbom.getMtoNo());
-            retEntries.add(retEntry);
 
-            // 补料单分录
+            String groupKey = pick.getStockOrgNumber() + "|" + moEntry.getPrdOrgNumber();
+            retGroups.computeIfAbsent(groupKey,
+                    k -> new ReturnOrderGroup(pick.getStockOrgNumber(), moEntry.getPrdOrgNumber()))
+                    .entries.add(retEntry);
+
+            // 补料单分录（补料单当前停用，保留组装；仓库沿用批次匹配仓库）
             KingdeeService.FeedOrderEntry feedEntry = new KingdeeService.FeedOrderEntry();
             feedEntry.setMaterialNumber(batch.getMaterialCode());
             feedEntry.setUnitNumber(unitNumber);
@@ -907,35 +1071,72 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
             feedEntry.setPpbomEntrySeq(ppbomEntry.getEntrySeq());
             feedEntry.setOperId(ppbomEntry.getOperId());
             feedEntry.setLocationId(batch.getLocationId());
-            // 计划跟踪号透传用料清单FMTONO：补料单分录FMTONO须与用料清单一致，否则金蝶Save拦截
             feedEntry.setMtoNo(ppbom.getMtoNo());
             feedEntries.add(feedEntry);
-
-            if (headerStockOrg == null) {
-                headerStockOrg = batch.getStockOrg() != null ? batch.getStockOrg() : moEntry.getPrdOrgNumber();
-                headerPrdOrg = moEntry.getPrdOrgNumber();
-                headerWorkshop = moEntry.getWorkshopNumber();
-                headerStock = batch.getWarehouseCode();
-            }
         }
 
         String date = LocalDate.now().atStartOfDay().format(FMT); // yyyy-MM-dd 00:00:00，与金蝶报文格式一致
         String description = "来源安灯补退料申请单: " + call.getCallNo();
 
-        // 退料单：已审核跳过；有续传单号走续传；否则新建
-        String retBillNo;
-        if (retDone) {
-            retBillNo = resumeRetBillNo;
-        } else {
-            KingdeeService.ReturnOrderResult retResult = kingdeeService.createReturnOrder(
-                    date, headerStockOrg, headerPrdOrg, description, retEntries, resumeRetBillNo);
-            retBillNo = retResult.getBillNo();
+        // ===== 已生成退料单盘点：单号 → 审核状态/库存组织（续传或跳过的依据）=====
+        List<String> existBills = splitCsv(resumeRetBillNos);
+        Map<String, String> existBillOrg = new HashMap<>();
+        Set<String> auditedBills = new HashSet<>();
+        for (String billNo : existBills) {
+            if ("C".equals(kingdeeService.viewBillDocumentStatus("PRD_ReturnMtrl", billNo))) {
+                auditedBills.add(billNo);
+            }
+            existBillOrg.put(billNo, kingdeeService.viewBillStockOrg("PRD_ReturnMtrl", billNo));
         }
+        Set<String> assignedBills = new HashSet<>();
+
+        // ===== 按库存组织逐组生成退料单（跨组织拆单）=====
+        List<String> retBillNos = new ArrayList<>();
+        for (ReturnOrderGroup group : retGroups.values()) {
+            String resumeBillNo = matchResumeBill(group, existBills, existBillOrg, auditedBills, assignedBills);
+            String billNo;
+            if (auditedBills.contains(resumeBillNo)) {
+                // 该组织退料单已审核，跳过（幂等）
+                billNo = resumeBillNo;
+                log.info("[补退料] 申请{} 库存组织{}退料单{}已审核，跳过生成",
+                        call.getCallNo(), group.stockOrgNumber, billNo);
+            } else {
+                try {
+                    KingdeeService.ReturnOrderResult retResult = kingdeeService.createReturnOrder(
+                            date, group.stockOrgNumber, group.prdOrgNumber, description,
+                            group.entries, resumeBillNo);
+                    billNo = retResult.getBillNo();
+                } catch (Exception e) {
+                    // 已成功Save的分组单号随异常带出，重试时续传避免重复建单
+                    throw new KingdeeService.BillStageException("PRD_ReturnMtrl",
+                            joinCsv(retBillNos),
+                            "库存组织[" + group.stockOrgNumber + "]退料单生成失败: " + e.getMessage());
+                }
+                log.info("[补退料] 申请{} 库存组织{}退料单已生成: {} ({}行分录)",
+                        call.getCallNo(), group.stockOrgNumber, billNo, group.entries.size());
+            }
+            if (billNo != null && !billNo.isEmpty()) {
+                retBillNos.add(billNo);
+                assignedBills.add(billNo);
+            }
+        }
+        // 未被任何组织分组匹配的旧单号：多为修复前生成的错误组织(如100)草稿，不续传不回写，记日志待人工清理
+        for (String old : existBills) {
+            if (!assignedBills.contains(old)) {
+                log.warn("[补退料] 申请{} 旧退料单{}（库存组织{}）与领料来源不匹配，已放弃续传并重新建单，请人工确认/删除该草稿",
+                        call.getCallNo(), old, existBillOrg.get(old));
+            }
+        }
+        if (retBillNos.isEmpty()) {
+            throw new KingdeeService.KingdeeApiException("退料单生成失败：无有效分组");
+        }
+        String retBillNoCsv = joinCsv(retBillNos);
 
         // 补料单：已审核跳过；有续传单号走续传；否则新建
         // 注意：补料单创建逻辑当前被临时注释，feedBillNo置null（下游写入erpReplenishOrderNo允许为空）
         String feedBillNo = null;
-        /***if (feedDone) {
+        /***boolean feedDone = isBillAudited("PRD_FeedMtrl", resumeFeedBillNo);
+        if (feedDone) {
             feedBillNo = resumeFeedBillNo;
         } else {
             KingdeeService.ReturnOrderResult feedResult = kingdeeService.createFeedOrder(
@@ -943,7 +1144,104 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
                     call.getApplicantName(), feedEntries, resumeFeedBillNo);
             feedBillNo = feedResult.getBillNo();
         }***/
-        return new String[]{retBillNo, feedBillNo};
+        return new String[]{retBillNoCsv, feedBillNo};
+    }
+
+    /**
+     * 为退料单分组匹配已有单号：
+     * 1) 优先已审核(C)且库存组织一致的单据 → 跳过；
+     * 2) 其次未审核且库存组织一致的草稿 → 续传（避免重复建单）；
+     * 3) 库存组织不一致的旧单号（如修复前默认100）不续传；
+     * 4) 仅当整单只有一个分组、且存在查询不到组织的旧单号时，兜底续传该单号。
+     */
+    private String matchResumeBill(ReturnOrderGroup group, List<String> existBills,
+                                   Map<String, String> existBillOrg, Set<String> auditedBills,
+                                   Set<String> assignedBills) {
+        // 已审核 + 组织一致（组织查询失败时null也允许，已审核单据必须跳过避免重复）
+        for (String billNo : existBills) {
+            if (assignedBills.contains(billNo) || !auditedBills.contains(billNo)) continue;
+            String org = existBillOrg.get(billNo);
+            if (org == null || org.equals(group.stockOrgNumber)) return billNo;
+        }
+        // 未审核草稿 + 组织明确一致 → 续传
+        for (String billNo : existBills) {
+            if (assignedBills.contains(billNo) || auditedBills.contains(billNo)) continue;
+            if (group.stockOrgNumber.equals(existBillOrg.get(billNo))) return billNo;
+        }
+        // 兜底：组织查询失败(null)的未审核草稿，且没有其他分组竞争时续传
+        for (String billNo : existBills) {
+            if (assignedBills.contains(billNo) || auditedBills.contains(billNo)) continue;
+            if (existBillOrg.get(billNo) == null) return billNo;
+        }
+        return null;
+    }
+
+    /**
+     * 按生产订单分录+物料+批次匹配生产领料单实际发料记录：
+     * 优先同批次记录（启用批次/FIFO时即该批次来源仓库）；无批次信息时取最近一次领料(FDate已降序)。
+     * 查不到发料记录时拦截，明确报错，不允许回退默认组织/仓库。
+     */
+    private KingdeeService.PickStockRow resolvePickStock(DbMaterialCall call,
+                                                         List<KingdeeService.PickStockRow> pickRows,
+                                                         Long moEntryId, String orderCode,
+                                                         String materialCode, String batchNo) {
+        List<KingdeeService.PickStockRow> candidates = pickRows.stream()
+                .filter(r -> Objects.equals(r.getMoEntryId(), moEntryId)
+                        && materialCode.equals(r.getMaterialCode()))
+                .collect(Collectors.toList());
+        if (candidates.isEmpty()) {
+            throw new RuntimeException("未查询到生产订单[" + orderCode + "]物料[" + materialCode
+                    + "]的已审核生产领料单发料记录，无法确定退料仓库/库存组织，已拦截生成（不允许使用默认组织）");
+        }
+        KingdeeService.PickStockRow picked = null;
+        if (batchNo != null && !batchNo.trim().isEmpty()) {
+            picked = candidates.stream()
+                    .filter(r -> batchNo.equals(r.getLotNumber()))
+                    .findFirst().orElse(null);
+        }
+        if (picked == null) {
+            picked = candidates.get(0); // 查询已按FDate desc排序 → 最近一次领料
+            log.info("[补退料] 申请{} 订单{}物料{}批次{}未匹配到同批次领料记录，回退最近一次领料单{}/{}/{}",
+                    call.getCallNo(), orderCode, materialCode, batchNo,
+                    picked.getBillNo(), picked.getStockOrgNumber(), picked.getStockNumber());
+        } else {
+            log.info("[补退料] 申请{} 订单{}物料{}批次{}匹配领料单{} 组织{} 仓库{} 仓位{}",
+                    call.getCallNo(), orderCode, materialCode, batchNo,
+                    picked.getBillNo(), picked.getStockOrgNumber(), picked.getStockNumber(),
+                    picked.getStockLocId());
+        }
+        if (picked.getStockOrgNumber() == null || picked.getStockOrgNumber().isEmpty()
+                || picked.getStockNumber() == null || picked.getStockNumber().isEmpty()) {
+            throw new RuntimeException("生产订单[" + orderCode + "]物料[" + materialCode
+                    + "]的领料单" + picked.getBillNo() + "缺少发料库存组织/仓库，已拦截生成");
+        }
+        if (picked.getOwnerNumber() != null && !picked.getOwnerNumber().equals(picked.getStockOrgNumber())) {
+            log.warn("[补退料] 申请{} 领料单{}货主{}与发料组织{}不一致，退料单货主按发料组织填写，请核查",
+                    call.getCallNo(), picked.getBillNo(), picked.getOwnerNumber(), picked.getStockOrgNumber());
+        }
+        return picked;
+    }
+
+    /** 逗号分隔单号 → 去空去重列表 */
+    private List<String> splitCsv(String csv) {
+        if (csv == null || csv.trim().isEmpty()) return new ArrayList<>();
+        return Arrays.stream(csv.split(","))
+                .map(String::trim).filter(s -> !s.isEmpty()).distinct()
+                .collect(Collectors.toList());
+    }
+
+    /** 列表 → 逗号分隔字符串 */
+    private String joinCsv(List<String> nos) {
+        return nos == null ? "" : nos.stream()
+                .filter(Objects::nonNull).map(String::trim).filter(s -> !s.isEmpty())
+                .distinct().collect(Collectors.joining(","));
+    }
+
+    /** 合并两批逗号分隔单号（去重保序） */
+    private String mergeCsv(String csv1, String csv2) {
+        LinkedHashSet<String> all = new LinkedHashSet<>(splitCsv(csv1));
+        all.addAll(splitCsv(csv2));
+        return String.join(",", all);
     }
 
     /**

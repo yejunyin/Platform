@@ -33,4 +33,11 @@ public class KingdeeProperties {
 
     /** 读取超时（毫秒） */
     private int readTimeoutMs = 60000;
+
+    /**
+     * 生产退料单"分录计划跟踪号与用料清单不一致"交互警告的兜底交互标识（InterationFlags）。
+     * 正常情况下标识从当次Save响应中自动提取，无需配置；仅当金蝶补丁版本不在响应中回传标识时，
+     * 可在此配置环境实际标识（多个用分号分隔）作为兜底。默认空=不兜底。
+     */
+    private String mtoInteractionFlag = "";
 }

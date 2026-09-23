@@ -38,12 +38,11 @@ public class MaterialSubmitRequest implements Serializable {
     @Schema(description = "退料类型文案, 冗余存储供展示")
     private String returnTypeName;
 
-    @NotBlank(message = "退料原因不能为空")
-    @Schema(description = "退料原因ID(接口3 reasonType=2 字典)")
+    /** 2026-09-22变更：退料原因改由质检审核人在审核通过时填写，提交时不再传值，后端忽略/置空 */
+    @Schema(description = "已废弃：退料原因改由审核人审核通过时填写(audit接口)，提交时即使传值也忽略")
     private String reasonId;
 
-    @NotBlank(message = "退料原因不能为空")
-    @Schema(description = "退料原因文本")
+    @Schema(description = "已废弃：退料原因改由审核人审核通过时填写(audit接口)，提交时即使传值也忽略")
     private String reasonText;
 
     @NotBlank(message = "质检员不能为空")
