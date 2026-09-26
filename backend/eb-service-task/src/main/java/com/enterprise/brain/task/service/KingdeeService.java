@@ -242,6 +242,7 @@ public class KingdeeService {
         private Integer ppbomEntrySeq;
         private Long locationId;        // 仓位值组合内码（启用仓位管理的仓库必传，FStockLocId）
         private String mtoNo;           // 计划跟踪号（退料单保存键名FMtoNo，取用料清单FMTONO，不一致金蝶Save拦截）
+        private String entrtyMemo;      // 物料行备注（FEntrtyMemo，质检审核时填写，空值传空串）
     }
 
     /**
@@ -847,6 +848,8 @@ public class KingdeeService {
                 if (e.getLocationId() != null && e.getLocationId() > 0) {
                     entry.put("FStockLocId", e.getLocationId());
                 }
+                // 物料行备注：金蝶生产退料单分录 FEntrtyMemo，保证字符串（空值传空串）
+                entry.put("FEntrtyMemo", e.getEntrtyMemo() == null ? "" : e.getEntrtyMemo());
                 entityList.add(entry);
             }
 

@@ -1,5 +1,6 @@
 package com.enterprise.brain.task.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
@@ -82,5 +83,9 @@ public class AuditListItemDTO implements Serializable {
 
         @Schema(description = "申请数量")
         private java.math.BigDecimal qty;
+
+        @JsonProperty("FEntrtyMemo")
+        @Schema(description = "物料行备注；无备注或历史数据返回空串")
+        private String fentrtyMemo;
     }
 }

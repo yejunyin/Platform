@@ -57,7 +57,7 @@ mybatis-plus:
       logic-delete-value: 1
       logic-not-delete-value: 0
 
-# 金蝶 K3 Cloud ERP 接口配置（备料明细从 ERP 拉取）
+# 金蝶 K3 Cloud ERP 接口配置（备料明细从 ERP 拉取） 6aa3c4379e5598   692fb7433ff3c1
 kingdee:
   base-url: http://192.168.1.16/k3cloud
   username: 叶军营

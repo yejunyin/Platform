@@ -1,6 +1,7 @@
 package com.enterprise.brain.task.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -44,6 +45,14 @@ public class DbMaterialCallItem implements Serializable {
 
     @Schema(description = "申请数量")
     private BigDecimal qty;
+
+    /**
+     * 物料行备注，对应金蝶 K3Cloud 生产退料单分录备注字段。
+     * 列名无下划线，需显式 @TableField（map-underscore-to-camel-case=true 会把 fentrtyMemo 映射成 FENTRTY_MEMO）
+     */
+    @TableField("FEntrtyMemo")
+    @Schema(description = "物料行备注，对应金蝶生产退料单分录备注")
+    private String fentrtyMemo;
 
     @Schema(description = "创建时间")
     private LocalDateTime createTime;

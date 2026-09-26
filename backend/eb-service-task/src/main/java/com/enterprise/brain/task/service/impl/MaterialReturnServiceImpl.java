@@ -61,6 +61,9 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
     /** ERP退料单生成最大重试次数 */
     private static final int ERP_MAX_ATTEMPTS = 3;
 
+    /** 物料行备注最大长度（金蝶生产退料单分录 FEntrtyMemo NVARCHAR(200)） */
+    private static final int MEMO_MAX_LENGTH = 200;
+
     @Resource
     private KingdeeService kingdeeService;
     @Resource
@@ -392,6 +395,8 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
                     md.setSpec(it.getSpec());
                     md.setUnit(it.getUnit());
                     md.setQty(scale2(it.getQty()));
+                    // 物料行备注：历史数据NULL归一为空串
+                    md.setFentrtyMemo(it.getFentrtyMemo() == null ? "" : it.getFentrtyMemo());
                     materials.add(md);
                 }
                 od.setMaterials(materials);
@@ -483,6 +488,9 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
 
         // ===== M3 FIFO 批次匹配 =====
         List<DbMaterialCallItem> items = itemMapper.selectByCallId(call.getId());
+        // 物料行备注按 orderCode+materialCode+qty 匹配落库（失败只记日志，不阻断主流程），
+        // 同步写回内存 items，供 M6 组装金蝶退料单分录
+        applyMaterialMemos(call, items, request.getMaterialMemos());
         List<DbMaterialCallBatch> allocations;
         try {
             allocations = matchFifo(call, items, force);
@@ -858,6 +866,66 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
         }
     }
 
+    /**
+     * 物料行备注落库（接口9 审核通过时）。
+     * <p>以 orderCode + materialCode + qty 联合键定位物料明细行：
+     * 匹配成功更新 FEntrtyMemo（trim 后超 200 字符截断）；匹配键缺失或匹配不到只记日志跳过；
+     * 同订单同物料多行时 qty 参与区分，qty 也相同时按明细行序（items 来自 selectByCallId，
+     * 已按 ORDER_CODE,MATERIAL_CODE 排序）逐条消费；备注更新失败只记日志，不阻断审核与金蝶单据生成。
+     * 更新同时写回内存 items，供 M6 组装退料单分录。</p>
+     */
+    private void applyMaterialMemos(DbMaterialCall call, List<DbMaterialCallItem> items,
+                                    List<MaterialAuditRequest.MaterialMemo> memos) {
+        if (memos == null || memos.isEmpty() || items == null || items.isEmpty()) return;
+        Set<String> usedItemIds = new HashSet<>();
+        for (MaterialAuditRequest.MaterialMemo m : memos) {
+            if (m == null) continue;
+            String orderCode = m.getOrderCode() == null ? null : m.getOrderCode().trim();
+            String materialCode = m.getMaterialCode() == null ? null : m.getMaterialCode().trim();
+            BigDecimal qty = m.getQty();
+            if (orderCode == null || orderCode.isEmpty()
+                    || materialCode == null || materialCode.isEmpty() || qty == null) {
+                log.warn("[补退料] 申请{}备注行匹配键不完整，已跳过: orderCode={}, materialCode={}, qty={}",
+                        call.getCallNo(), orderCode, materialCode, qty);
+                continue;
+            }
+            DbMaterialCallItem target = null;
+            for (DbMaterialCallItem it : items) {
+                if (usedItemIds.contains(it.getId())) continue;
+                if (orderCode.equals(it.getOrderCode())
+                        && materialCode.equals(it.getMaterialCode())
+                        && nz(it.getQty()).compareTo(nz(qty)) == 0) {
+                    target = it;
+                    break;
+                }
+            }
+            if (target == null) {
+                log.warn("[补退料] 申请{}备注未匹配到物料明细行，已跳过: {}/{}/{}",
+                        call.getCallNo(), orderCode, materialCode, qty);
+                continue;
+            }
+            usedItemIds.add(target.getId());
+            String memo = normalizeMemo(m.getFentrtyMemo());
+            target.setFentrtyMemo(memo);
+            try {
+                DbMaterialCallItem upd = new DbMaterialCallItem();
+                upd.setId(target.getId());
+                upd.setFentrtyMemo(memo);
+                itemMapper.updateById(upd);
+            } catch (Exception e) {
+                log.error("[补退料] 申请{}物料行{}/{}/{}备注更新失败，不阻断审核: {}",
+                        call.getCallNo(), orderCode, materialCode, qty, e.getMessage(), e);
+            }
+        }
+    }
+
+    /** 备注规范化：null→空串；trim 后超过 200 字符按 200 截断 */
+    private String normalizeMemo(String memo) {
+        if (memo == null) return "";
+        String t = memo.trim();
+        return t.length() > MEMO_MAX_LENGTH ? t.substring(0, MEMO_MAX_LENGTH) : t;
+    }
+
     // ==================================================================
     // M6 金蝶退料单+补料单生成（Save → Submit → Audit，最多重试3次）
     // ==================================================================
@@ -1046,6 +1114,8 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
                     ? pick.getStockLocId() : batch.getLocationId());
             // 计划跟踪号透传用料清单FMTONO（方案A对齐，空值传空串由KingdeeService处理）
             retEntry.setMtoNo(ppbom.getMtoNo());
+            // 物料行备注：取申请明细行FEntrtyMemo（审核时落库；retryErpOrder/重推时从DB读取，不依赖前端再次提交）
+            retEntry.setEntrtyMemo(item.getFentrtyMemo() == null ? "" : item.getFentrtyMemo());
 
             String groupKey = pick.getStockOrgNumber() + "|" + moEntry.getPrdOrgNumber();
             retGroups.computeIfAbsent(groupKey,

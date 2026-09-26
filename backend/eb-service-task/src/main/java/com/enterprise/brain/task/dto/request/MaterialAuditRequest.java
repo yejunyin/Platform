@@ -1,11 +1,14 @@
 package com.enterprise.brain.task.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.io.Serializable;
+import java.math.BigDecimal;
+import java.util.List;
 
 /**
  * 接口9：质检审核请求体
@@ -44,4 +47,30 @@ public class MaterialAuditRequest implements Serializable {
 
     @Schema(description = "库存不足部分匹配时是否按最大可用量继续 0否 1是")
     private Integer forceFlag;
+
+    @Schema(description = "物料行备注数组(选填, 审核通过auditResult=1时使用; 驳回时忽略; forceFlag=1重试时原样回传)")
+    private List<MaterialMemo> materialMemos;
+
+    /**
+     * 物料行备注项：后端以 orderCode + materialCode + qty 联合键定位物料明细行
+     */
+    @Data
+    @Schema(description = "物料行备注项")
+    public static class MaterialMemo implements Serializable {
+
+        private static final long serialVersionUID = 1L;
+
+        @Schema(description = "生产订单编码，分录匹配键之一")
+        private String orderCode;
+
+        @Schema(description = "物料编码，分录匹配键之一")
+        private String materialCode;
+
+        @Schema(description = "本物料行退料数量，用于同一订单下相同物料多行的区分")
+        private BigDecimal qty;
+
+        @JsonProperty("FEntrtyMemo")
+        @Schema(description = "物料行备注，最长200字符；后端入库前做trim与长度截断")
+        private String fentrtyMemo;
+    }
 }

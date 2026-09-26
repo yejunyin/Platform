@@ -109,4 +109,5 @@ com\enterprise\brain\task\service\KingdeeService$PickStockRow.class
 com\enterprise\brain\task\service\impl\TaskServiceImpl$1.class
 com\enterprise\brain\task\service\KingdeeService$MoInfo.class
 com\enterprise\brain\task\enums\TaskStatusEnum.class
+com\enterprise\brain\task\dto\request\MaterialAuditRequest$MaterialMemo.class
 com\enterprise\brain\task\service\KingdeeService$MoEntryDetail.class
