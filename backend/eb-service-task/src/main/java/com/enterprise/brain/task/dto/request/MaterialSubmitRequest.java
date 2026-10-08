@@ -1,5 +1,6 @@
 package com.enterprise.brain.task.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
@@ -102,5 +103,9 @@ public class MaterialSubmitRequest implements Serializable {
         @Positive(message = "补料数量必须大于0")
         @Schema(description = "补料数量")
         private BigDecimal qty;
+
+        @JsonProperty("FEntrtyMemo")
+        @Schema(description = "申请人填写的物料行备注(选填)，最长200字符；后端入库前trim、超长截断")
+        private String fentrtyMemo;
     }
 }

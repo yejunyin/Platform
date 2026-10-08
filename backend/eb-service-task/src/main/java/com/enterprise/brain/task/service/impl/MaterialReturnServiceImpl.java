@@ -94,6 +94,7 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
         if (mo == null) {
             throw new IllegalArgumentException("生产订单不存在或未审核：" + orderCode);
         }
+        System.out.println(mo.getStatus());
         if (!materialProperties.allowMoStatusSet().contains(mo.getStatus())) {
             throw new IllegalArgumentException("订单状态为[" + moStatusText(mo.getStatus())
                     + "]，仅下达/开工状态订单允许补料");
@@ -286,6 +287,8 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
                 item.setSpec(line.getSpec());
                 item.setUnit(line.getUnit());
                 item.setQty(line.getQty());
+                // 申请人填写的物料行备注：缺省视为空串，trim 后超200字符截断
+                item.setFentrtyMemo(normalizeMemo(line.getFentrtyMemo()));
                 item.setCreateTime(now);
                 itemMapper.insert(item);
             }
@@ -720,7 +723,7 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
      */
     public static void main(String[] args) {
         
-        String callNo = "TL20260916084822494";
+        String callNo = "TL20260916171759972";
         //来源安灯补退料申请单: TL20260916084822494
         SpringApplication app = new SpringApplication(TaskServiceApplication.class);
         // 工具模式：不启动Web容器（不占用8081端口），不注册/拉取Nacos配置

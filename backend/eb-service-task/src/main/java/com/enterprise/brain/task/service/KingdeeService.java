@@ -732,7 +732,7 @@ public class KingdeeService {
                 .filter(s -> !s.isEmpty()).distinct().collect(java.util.stream.Collectors.toList());
         if (ids.isEmpty() || codes.isEmpty()) return result;
 
-        String filter = "FDocumentStatus='C' and FMOEntryId in (" + String.join(",", ids)
+        String filter = "FMOEntryId in (" + String.join(",", ids)
                 + ") and FMaterialId.FNumber in (" + inList(codes) + ")";
         List<JsonNode> rows = executeBillQuery("PRD_PickMtrl",
                 "FBillNo,FDate,FStockOrgId.FNumber,FMaterialId.FNumber,FStockId.FNumber,FStockLocId,"
