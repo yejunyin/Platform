@@ -114,11 +114,12 @@ class TaskServiceTest {
         when(distributedLockUtil.tryLock(any(String.class), anyLong(), anyLong(), any(java.util.function.Supplier.class)))
                 .thenAnswer(invocation -> ((java.util.function.Supplier<?>) invocation.getArgument(3)).get());
 
-        when(distributedLockUtil.tryLock(any(String.class), anyLong(), anyLong(), any(Runnable.class)))
-                .thenAnswer(invocation -> {
+        // Runnable版本tryLock返回void，void方法不能用when()打桩，必须用doAnswer().when()风格
+        doAnswer(invocation -> {
                     ((Runnable) invocation.getArgument(3)).run();
                     return null;
-                });
+                }).when(distributedLockUtil)
+                .tryLock(any(String.class), anyLong(), anyLong(), any(Runnable.class));
     }
 
     @Nested
