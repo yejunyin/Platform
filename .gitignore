@@ -4,3 +4,4 @@ backend/eb-service-task/bin/
 frontend/node_modules/
 backend/eb-gateway/bin/
 backend/eb-common/bin/
+target/
