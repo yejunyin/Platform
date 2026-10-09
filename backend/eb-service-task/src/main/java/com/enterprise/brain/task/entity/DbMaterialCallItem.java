@@ -54,6 +54,13 @@ public class DbMaterialCallItem implements Serializable {
     @Schema(description = "物料行备注，对应金蝶生产退料单分录备注")
     private String fentrtyMemo;
 
+    /**
+     * 责任归属（质检审核环节手填，M6 生成金蝶生产退料单时写入分录自定义字段 Fresponsible）。
+     */
+    @TableField("responsible")
+    @Schema(description = "责任归属，审核人手填，写入金蝶退料单分录 Fresponsible")
+    private String responsible;
+
     @Schema(description = "创建时间")
     private LocalDateTime createTime;
 }

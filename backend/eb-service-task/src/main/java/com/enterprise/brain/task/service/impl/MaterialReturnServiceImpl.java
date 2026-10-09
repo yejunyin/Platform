@@ -64,6 +64,9 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
     /** 物料行备注最大长度（金蝶生产退料单分录 FEntrtyMemo NVARCHAR(200)） */
     private static final int MEMO_MAX_LENGTH = 200;
 
+    /** 责任归属最大长度（NVARCHAR(100)，写入金蝶退料单分录自定义字段 Fresponsible） */
+    private static final int RESPONSIBLE_MAX_LENGTH = 100;
+
     @Resource
     private KingdeeService kingdeeService;
     @Resource
@@ -231,6 +234,9 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
         for (KingdeeService.PpbomRow row : ppbomRows) {
             ppbomMap.put(ppbomKey(row.getMoBillNo(), row.getMaterialCode()), row);
         }
+        // v1.2行拆分：同一订单同一物料允许拆成多行，先逐行确认物料在用料清单内，
+        // 再按 订单+物料 汇总各行数量与可退上限复核（合计超出则整单报错）
+        Map<String, BigDecimal> submitQtySum = new LinkedHashMap<>();
         for (MaterialSubmitRequest.OrderGroup group : request.getOrderList()) {
             for (MaterialSubmitRequest.MaterialLine line : group.getMaterials()) {
                 KingdeeService.PpbomRow row = ppbomMap.get(ppbomKey(group.getOrderCode(), line.getMaterialCode()));
@@ -238,12 +244,19 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
                     throw new IllegalArgumentException("订单[" + group.getOrderCode() + "]的用料清单不存在物料["
                             + line.getMaterialCode() + "]，不允许退料");
                 }
-                BigDecimal diff = nz(row.getPickedQty());
-                if (line.getQty().compareTo(diff) > 0) {
-                    throw new IllegalArgumentException("订单[" + group.getOrderCode() + "]物料["
-                            + line.getMaterialCode() + "]可退数量为" + scale2(diff)
-                            + "，申请数量" + scale2(line.getQty()) + "超出");
-                }
+                submitQtySum.merge(ppbomKey(group.getOrderCode(), line.getMaterialCode()),
+                        nz(line.getQty()), BigDecimal::add);
+            }
+        }
+        for (Map.Entry<String, BigDecimal> en : submitQtySum.entrySet()) {
+            String[] parts = en.getKey().split("\\|", 2);
+            KingdeeService.PpbomRow row = ppbomMap.get(en.getKey());
+            BigDecimal diff = nz(row.getPickedQty());
+            BigDecimal applyQty = en.getValue();
+            if (applyQty.compareTo(diff) > 0) {
+                throw new IllegalArgumentException("订单[" + parts[0] + "]物料[" + parts[1]
+                        + "]可退数量为" + scale2(diff) + "，各行合计申请" + scale2(applyQty)
+                        + "，超退" + scale2(applyQty.subtract(diff)));
             }
         }
 
@@ -326,7 +339,7 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
         // 批量加载明细
         List<String> callIds = calls.stream().map(DbMaterialCall::getId).collect(Collectors.toList());
         Map<String, List<DbMaterialCallItem>> itemMap = itemMapper
-                .selectList(new QueryWrapper<DbMaterialCallItem>().in("CALL_ID", callIds))
+                .selectList(new QueryWrapper<DbMaterialCallItem>().in("CALL_ID", callIds).orderByAsc("ID"))
                 .stream().collect(Collectors.groupingBy(DbMaterialCallItem::getCallId));
 
         return calls.stream().map(c -> toApplicationDTO(c,
@@ -361,7 +374,7 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
 
         List<String> callIds = calls.stream().map(DbMaterialCall::getId).collect(Collectors.toList());
         Map<String, List<DbMaterialCallItem>> itemMap = itemMapper
-                .selectList(new QueryWrapper<DbMaterialCallItem>().in("CALL_ID", callIds))
+                .selectList(new QueryWrapper<DbMaterialCallItem>().in("CALL_ID", callIds).orderByAsc("ID"))
                 .stream().collect(Collectors.groupingBy(DbMaterialCallItem::getCallId));
 
         // 订单 → 产品名称（缓存，避免重复查询金蝶）
@@ -398,8 +411,9 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
                     md.setSpec(it.getSpec());
                     md.setUnit(it.getUnit());
                     md.setQty(scale2(it.getQty()));
-                    // 物料行备注：历史数据NULL归一为空串
+                    // 物料行备注/责任归属：历史数据NULL归一为空串；拆分行逐行返回，顺序与入库一致
                     md.setFentrtyMemo(it.getFentrtyMemo() == null ? "" : it.getFentrtyMemo());
+                    md.setResponsible(it.getResponsible() == null ? "" : it.getResponsible());
                     materials.add(md);
                 }
                 od.setMaterials(materials);
@@ -870,12 +884,13 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
     }
 
     /**
-     * 物料行备注落库（接口9 审核通过时）。
+     * 物料行备注/责任归属落库（接口9 审核通过时）。
      * <p>以 orderCode + materialCode + qty 联合键定位物料明细行：
-     * 匹配成功更新 FEntrtyMemo（trim 后超 200 字符截断）；匹配键缺失或匹配不到只记日志跳过；
-     * 同订单同物料多行时 qty 参与区分，qty 也相同时按明细行序（items 来自 selectByCallId，
-     * 已按 ORDER_CODE,MATERIAL_CODE 排序）逐条消费；备注更新失败只记日志，不阻断审核与金蝶单据生成。
-     * 更新同时写回内存 items，供 M6 组装退料单分录。</p>
+     * 匹配成功同时覆盖更新 FEntrtyMemo（trim 后超 200 字符截断）与 responsible（trim 后超 100 字符截断）；
+     * 匹配键缺失或匹配不到只记日志跳过；同订单同物料多行时 qty 参与区分，qty 也相同时
+     * 按明细行序（items 来自 selectByCallId，按 ID 即 submit 入库顺序排序）逐条消费；
+     * 备注/责任归属更新失败只记日志，不阻断审核与金蝶单据生成。
+     * 更新同时写回内存 items，供 M6 组装退料单分录（FEntrtyMemo 与 responsible 均按行写入金蝶）。</p>
      */
     private void applyMaterialMemos(DbMaterialCall call, List<DbMaterialCallItem> items,
                                     List<MaterialAuditRequest.MaterialMemo> memos) {
@@ -908,25 +923,33 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
                 continue;
             }
             usedItemIds.add(target.getId());
-            String memo = normalizeMemo(m.getFentrtyMemo());
+            String memo = normalizeText(m.getFentrtyMemo(), MEMO_MAX_LENGTH);
+            String responsible = normalizeText(m.getResponsible(), RESPONSIBLE_MAX_LENGTH);
             target.setFentrtyMemo(memo);
+            target.setResponsible(responsible);
             try {
                 DbMaterialCallItem upd = new DbMaterialCallItem();
                 upd.setId(target.getId());
                 upd.setFentrtyMemo(memo);
+                upd.setResponsible(responsible);
                 itemMapper.updateById(upd);
             } catch (Exception e) {
-                log.error("[补退料] 申请{}物料行{}/{}/{}备注更新失败，不阻断审核: {}",
+                log.error("[补退料] 申请{}物料行{}/{}/{}备注/责任归属更新失败，不阻断审核: {}",
                         call.getCallNo(), orderCode, materialCode, qty, e.getMessage(), e);
             }
         }
     }
 
+    /** 文本规范化：null→空串；trim 后超过 maxLen 字符按 maxLen 截断 */
+    private String normalizeText(String text, int maxLen) {
+        if (text == null) return "";
+        String t = text.trim();
+        return t.length() > maxLen ? t.substring(0, maxLen) : t;
+    }
+
     /** 备注规范化：null→空串；trim 后超过 200 字符按 200 截断 */
     private String normalizeMemo(String memo) {
-        if (memo == null) return "";
-        String t = memo.trim();
-        return t.length() > MEMO_MAX_LENGTH ? t.substring(0, MEMO_MAX_LENGTH) : t;
+        return normalizeText(memo, MEMO_MAX_LENGTH);
     }
 
     // ==================================================================
@@ -1119,6 +1142,8 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
             retEntry.setMtoNo(ppbom.getMtoNo());
             // 物料行备注：取申请明细行FEntrtyMemo（审核时落库；retryErpOrder/重推时从DB读取，不依赖前端再次提交）
             retEntry.setEntrtyMemo(item.getFentrtyMemo() == null ? "" : item.getFentrtyMemo());
+            // 责任归属：取申请明细行responsible（审核时落库），写入金蝶分录自定义字段 Fresponsible
+            retEntry.setResponsible(item.getResponsible() == null ? "" : item.getResponsible());
 
             String groupKey = pick.getStockOrgNumber() + "|" + moEntry.getPrdOrgNumber();
             retGroups.computeIfAbsent(groupKey,

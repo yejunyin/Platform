@@ -72,5 +72,8 @@ public class MaterialAuditRequest implements Serializable {
         @JsonProperty("FEntrtyMemo")
         @Schema(description = "物料行备注，最长200字符；后端入库前做trim与长度截断")
         private String fentrtyMemo;
+
+        @Schema(description = "责任归属(审核人手填, 写入金蝶退料单分录Fresponsible)，最长100字符；缺省视为空串")
+        private String responsible;
     }
 }

@@ -87,5 +87,8 @@ public class AuditListItemDTO implements Serializable {
         @JsonProperty("FEntrtyMemo")
         @Schema(description = "物料行备注；无备注或历史数据返回空串")
         private String fentrtyMemo;
+
+        @Schema(description = "责任归属(审核人填写, 写入金蝶退料单分录Fresponsible)；未填写或历史数据返回空串")
+        private String responsible;
     }
 }
