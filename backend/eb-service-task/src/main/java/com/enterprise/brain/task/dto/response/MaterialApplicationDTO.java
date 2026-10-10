@@ -1,5 +1,6 @@
 package com.enterprise.brain.task.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
@@ -35,6 +36,14 @@ public class MaterialApplicationDTO implements Serializable {
 
     @Schema(description = "质检员姓名")
     private String qcStaffName;
+
+    @JsonProperty("Forg")
+    @Schema(description = "归属组织(华丽/桐琴/无刷)；历史单据可能为null")
+    private String forg;
+
+    @JsonProperty("FGroup")
+    @Schema(description = "组别；历史单据可能为null/空串")
+    private String fGroup;
 
     @Schema(description = "退料类型文案(有值才展示)")
     private String returnTypeText;

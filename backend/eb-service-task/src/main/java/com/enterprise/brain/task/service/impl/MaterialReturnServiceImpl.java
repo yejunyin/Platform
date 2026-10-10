@@ -215,6 +215,10 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
         List<String> orderCodes = distinctTrimmed(request.getOrderList().stream()
                 .map(MaterialSubmitRequest.OrderGroup::getOrderCode).collect(Collectors.toList()));
 
+        // ===== Forg/FGroup 仅用于金蝶统计报表，选填，原样落库：trim 后空白归 null，不校验不阻断 =====
+        String forg = trimToNull(request.getForg());
+        String fGroup = trimToNull(request.getFGroup());
+
         // ===== 服务端二次校验：订单状态 + 可退数量 =====
         Map<String, KingdeeService.MoInfo> moMap = new LinkedHashMap<>();
         for (String code : orderCodes) {
@@ -278,6 +282,8 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
         call.setQcStaffId(request.getQcStaffId());
         call.setQcStaffCode(request.getQcStaffCode());
         call.setQcStaffName(request.getQcStaffName());
+        call.setForg(forg);
+        call.setFGroup(fGroup);
         // 2026-09-22变更：退料原因(REASON_ID/REASON_TEXT)改由质检审核人审核通过时填写，
         // 提交时即使前端仍传 reasonId/reasonText 也忽略，申请单落库为空
         call.setReasonId(null);
@@ -390,6 +396,8 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
             dto.setReturnTypeId(call.getReturnType());
             dto.setReturnTypeText(call.getReturnTypeName());
             dto.setReasonText(call.getReasonText());
+            dto.setForg(call.getForg());
+            dto.setFGroup(call.getFGroup());
 
             Map<String, List<DbMaterialCallItem>> byOrder = itemMap
                     .getOrDefault(call.getId(), Collections.emptyList())
@@ -940,6 +948,13 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
         }
     }
 
+    /** trim 后为空串/空白则归 null */
+    private String trimToNull(String text) {
+        if (text == null) return null;
+        String t = text.trim();
+        return t.isEmpty() ? null : t;
+    }
+
     /** 文本规范化：null→空串；trim 后超过 maxLen 字符按 maxLen 截断 */
     private String normalizeText(String text, int maxLen) {
         if (text == null) return "";
@@ -1176,6 +1191,11 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
         String date = LocalDate.now().atStartOfDay().format(FMT); // yyyy-MM-dd 00:00:00，与金蝶报文格式一致
         String description = "来源安灯补退料申请单: " + call.getCallNo();
 
+        // ===== 单头 Forg/FGroup/FInspector：仅用于金蝶侧统计报表，原样透传，不校验不阻断；未传即为 null =====
+        String forg = call.getForg();
+        String headerFGroup = call.getFGroup();
+        String inspector = call.getQcStaffName();
+
         // ===== 已生成退料单盘点：单号 → 审核状态/库存组织（续传或跳过的依据）=====
         List<String> existBills = splitCsv(resumeRetBillNos);
         Map<String, String> existBillOrg = new HashMap<>();
@@ -1202,7 +1222,8 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
                 try {
                     KingdeeService.ReturnOrderResult retResult = kingdeeService.createReturnOrder(
                             date, group.stockOrgNumber, group.prdOrgNumber, description,
-                            group.entries, resumeBillNo);
+                            call.getApplicantName(), group.entries, resumeBillNo,
+                            forg, headerFGroup, inspector);
                     billNo = retResult.getBillNo();
                 } catch (Exception e) {
                     // 已成功Save的分组单号随异常带出，重试时续传避免重复建单
@@ -1517,6 +1538,8 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
         dto.setApplicantName(call.getApplicantName());
         dto.setApplicantDept(call.getApplicantDept());
         dto.setQcStaffName(call.getQcStaffName());
+        dto.setForg(call.getForg());
+        dto.setFGroup(call.getFGroup());
         dto.setReturnTypeText(call.getReturnTypeName());
         dto.setReasonId(call.getReasonId());
         dto.setReasonText(call.getReasonText());

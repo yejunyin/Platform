@@ -788,11 +788,17 @@ public class KingdeeService {
      * <p>分录通过 FSrcBillType/FPPBomEntryId/FPPBomBillNo/FEntity_Link 建立与用料清单(PRD_PPBOM)的关联，
      * 保证金蝶中可上查到生产用料清单。</p>
      * <p>调用前必须确保各分录的 moEntry/ppbom 信息已通过 {@link #viewMoEntry} / {@link #queryPpbom} / {@link #viewPpbom} 获取。</p>
+     * @param returner 退料人（单据头自定义字段 FReturner，取申请单申请人名称，空值传空串）
      * @param resumeBillNo 续传单号：之前Save成功但Submit/Audit失败的单号，非空时跳过Save直接续传
+     * @param forg 归属组织（单据头 Forg，统计用普通文本，原样透传，未传为 null）
+     * @param fGroup 组别（单据头 FGroup，统计用普通文本，原样透传，未传为 null）
+     * @param inspector 质检员（单据头 FInspector，统计用，取申请单 qc_staff_name，未传为 null）
      */
     public ReturnOrderResult createReturnOrder(String date, String stockOrgNumber, String prdOrgNumber,
-                                                String description, List<ReturnOrderEntry> entries,
-                                                String resumeBillNo) {
+                                                String description, String returner,
+                                                List<ReturnOrderEntry> entries,
+                                                String resumeBillNo,
+                                                String forg, String fGroup, String inspector) {
         String billNo = (resumeBillNo == null || resumeBillNo.isEmpty()) ? null : resumeBillNo;
 
         // 1. Save（已有续传单号时跳过，避免重复建单）
@@ -864,6 +870,12 @@ public class KingdeeService {
             model.put("FOwnerTypeId", "BD_OwnerOrg");
             model.put("FOwnerId", Collections.singletonMap("FNumber", stockOrgNumber));
             model.put("FDescription", description);
+            // 退料人：金蝶生产退料单单据头自定义字段 FReturner，取申请单申请人名称(DB_MATERIAL_CALL.APPLICANT_NAME)，空值传空串
+            model.put("FReturner", returner == null ? "" : returner);
+            // 归属组织/组别/质检员：金蝶退料单头统计字段，普通文本，原样透传；未传即为 null（金蝶忽略 null）
+            model.put("Forg", forg);
+            model.put("FGroup", fGroup);
+            model.put("FInspector", inspector);
             model.put("FEntity", entityList);
 
             Map<String, Object> packet = new LinkedHashMap<>();

@@ -61,6 +61,12 @@ public class DbMaterialCall implements Serializable {
     @Schema(description = "质检员姓名")
     private String qcStaffName;
 
+    @Schema(description = "归属组织(华丽/桐琴/无刷), 发起人提交时选择, 金蝶退料单头 Forg")
+    private String forg;
+
+    @Schema(description = "组别, 发起人提交时手填, 金蝶退料单头 FGroup")
+    private String fGroup;
+
     @Schema(description = "退料原因ID(字典reasonType=2)")
     private String reasonId;
 

@@ -31,6 +31,14 @@ public class MaterialSubmitRequest implements Serializable {
     @Schema(description = "申请人部门")
     private String applicantDept;
 
+    @JsonProperty("Forg")
+    @Schema(description = "归属组织(选填): 金蝶统计用文本，原样落库透传，不传为null")
+    private String forg;
+
+    @JsonProperty("FGroup")
+    @Schema(description = "组别(选填): 金蝶统计用文本，原样落库透传，不传为null")
+    private String fGroup;
+
     @NotNull(message = "退料类型不能为空")
     @Schema(description = "退料类型字典ID(接口3 reasonType=1 返回项id, 金蝶退料单必需)")
     private String returnTypeId;

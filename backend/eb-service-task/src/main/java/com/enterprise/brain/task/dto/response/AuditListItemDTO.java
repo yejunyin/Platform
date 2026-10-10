@@ -40,6 +40,14 @@ public class AuditListItemDTO implements Serializable {
     @Schema(description = "退料原因")
     private String reasonText;
 
+    @JsonProperty("Forg")
+    @Schema(description = "归属组织(华丽/桐琴/无刷)；历史单据可能为null")
+    private String forg;
+
+    @JsonProperty("FGroup")
+    @Schema(description = "组别；历史单据可能为null/空串")
+    private String fGroup;
+
     @Schema(description = "订单及物料明细")
     private List<OrderDTO> orderList;
 
