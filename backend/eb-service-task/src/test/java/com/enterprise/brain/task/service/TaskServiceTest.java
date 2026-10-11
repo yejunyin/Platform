@@ -84,6 +84,7 @@ class TaskServiceTest {
         return task;
     }
 
+    @SuppressWarnings("unchecked")
     @BeforeEach
     void setUp() {
         taskService = new TaskServiceImpl();

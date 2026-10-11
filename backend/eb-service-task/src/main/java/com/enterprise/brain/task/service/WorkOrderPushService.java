@@ -81,6 +81,7 @@ public class WorkOrderPushService {
      * @param event 工单事件
      * @return RocketMQ 消息ID（RabbitMQ 无对应值返回 null）
      */
+    @SuppressWarnings("null")
     public String push(WorkOrderEvent event) throws Exception {
         long start = System.currentTimeMillis();
         log.info("[工单推送] 收到推送请求: op={}, sourceId={}, mqType={}",

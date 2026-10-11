@@ -32,8 +32,10 @@ public class KingdeeService {
             "/Kingdee.BOS.WebApi.ServicesStub.DynamicFormService.View.common.kdsvc";
     private static final String SAVE_PATH =
             "/Kingdee.BOS.WebApi.ServicesStub.DynamicFormService.Save.common.kdsvc";
+    @SuppressWarnings("unused")
     private static final String SUBMIT_PATH =
             "/Kingdee.BOS.WebApi.ServicesStub.DynamicFormService.Submit.common.kdsvc";
+    @SuppressWarnings("unused")
     private static final String AUDIT_PATH =
             "/Kingdee.BOS.WebApi.ServicesStub.DynamicFormService.Audit.common.kdsvc";
 

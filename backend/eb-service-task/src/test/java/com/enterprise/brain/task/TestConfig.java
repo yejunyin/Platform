@@ -23,6 +23,7 @@ public class TestConfig {
     @MockBean
     private DistributedLockUtil distributedLockUtil;
 
+    @SuppressWarnings("unchecked")
     @org.springframework.context.annotation.Bean
     public DistributedLockUtil distributedLockUtil() {
         DistributedLockUtil mock = org.mockito.Mockito.mock(DistributedLockUtil.class);

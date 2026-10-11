@@ -1032,6 +1032,7 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
     }
 
     /** 单号非空且金蝶审核状态为C（已审核）时返回true；查询失败视为未完成，走续传由金蝶校验 */
+    @SuppressWarnings("unused")
     private boolean isBillAudited(String formId, String billNo) {
         if (billNo == null || billNo.isEmpty()) return false;
         return "C".equals(kingdeeService.viewBillDocumentStatus(formId, billNo));
@@ -1049,6 +1050,7 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
         }
     }
 
+    @SuppressWarnings("null")
     private String[] buildAndCreateErpOrders(DbMaterialCall call, List<DbMaterialCallItem> items,
                                              List<DbMaterialCallBatch> batches,
                                              String resumeRetBillNos, String resumeFeedBillNo) {
@@ -1695,6 +1697,7 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
         return idx > 0 ? kingdeeDate.substring(0, idx) : kingdeeDate;
     }
 
+    @SuppressWarnings("unused")
     private String truncate(String s, int max) {
         if (s == null) return "";
         return s.length() > max ? s.substring(0, max) : s;
