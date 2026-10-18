@@ -24,6 +24,15 @@ public interface MesProductOrderMapper extends BaseMapper<MesProductOrder> {
     List<MesProductOrder> selectAllOrders();
 
     /**
+     * 工资核算同步用：拉取近一年 MES 生产订单（不按车间/当天过滤），按开始时间倒序
+     */
+    @Select("select TOP 5000 id,producttype,starttime,ordercode,pcode,machcode,materialid,materialname,total,spec,dept,staffname," +
+            "scheduledpriority as schedulepriority,unit,BOMflag " +
+            "from mes_dwd_productOrder where starttime >= DATEADD(MONTH, -12, GETDATE()) " +
+            "order by starttime desc")
+    List<MesProductOrder> selectWageSyncList();
+
+    /**
      * 按任务单号 pcode 查询单条订单（含 BOMflag）
      */
     @Select("select TOP 1 id,producttype,starttime,ordercode,pcode,machcode,materialid,materialname,total,spec,dept,staffname," +

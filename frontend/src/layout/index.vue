@@ -84,6 +84,44 @@
             <template #title>质检人员维护</template>
           </el-menu-item>
         </el-sub-menu>
+        <el-sub-menu index="/wage">
+          <template #title>
+            <el-icon><Money /></el-icon>
+            <span>工资核算</span>
+          </template>
+          <el-menu-item index="/wage/orders">
+            <el-icon><Tickets /></el-icon>
+            <template #title>生产任务单</template>
+          </el-menu-item>
+          <el-menu-item index="/wage/materials">
+            <el-icon><Box /></el-icon>
+            <template #title>用料清单查询</template>
+          </el-menu-item>
+          <el-menu-item index="/wage/paystat">
+            <el-icon><DocumentChecked /></el-icon>
+            <template #title>计件复核</template>
+          </el-menu-item>
+          <el-menu-item index="/wage/wage-manage">
+            <el-icon><Wallet /></el-icon>
+            <template #title>工资管理</template>
+          </el-menu-item>
+          <el-menu-item index="/wage/staff">
+            <el-icon><User /></el-icon>
+            <template #title>员工基础资料</template>
+          </el-menu-item>
+          <el-menu-item index="/wage/groups">
+            <el-icon><UserFilled /></el-icon>
+            <template #title>人员小组</template>
+          </el-menu-item>
+          <el-menu-item index="/wage/price">
+            <el-icon><PriceTag /></el-icon>
+            <template #title>单价工序资料</template>
+          </el-menu-item>
+          <el-menu-item index="/wage/process">
+            <el-icon><SetUp /></el-icon>
+            <template #title>工序资料</template>
+          </el-menu-item>
+        </el-sub-menu>
       </el-menu>
 
       <!-- 侧边底部铭牌 -->
@@ -180,7 +218,8 @@ import { taskApi } from '@/api/task'
 import {
   Cpu, House, Tickets, Clock, Finished, DataAnalysis,
   Bell, User, ArrowDown, SwitchButton, Expand, Fold,
-  CircleCheck, Box, Monitor, Files, WarningFilled, TrendCharts
+  CircleCheck, Box, Monitor, Files, WarningFilled, TrendCharts,
+  Money, DocumentChecked, Wallet, UserFilled, PriceTag, SetUp
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 

@@ -464,10 +464,6 @@
 }
 
 /* ---------- 表格行高亮（备料中） ---------- */
-:deep(.el-table) {
-  --el-text-color-regular: #000;
-  td .cell { color: #000; }
-}
 :deep(.ind-table) {
   .row-preparing {
     background: rgba(255,176,32,0.12) !important;

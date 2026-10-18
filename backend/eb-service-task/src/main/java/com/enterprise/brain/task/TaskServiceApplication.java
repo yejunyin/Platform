@@ -10,7 +10,7 @@ import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
  */
 @SpringBootApplication
 @EnableDiscoveryClient
-@MapperScan("com.enterprise.brain.task.mapper")
+@MapperScan({"com.enterprise.brain.task.mapper", "com.enterprise.brain.task.wage.mapper"})
 public class TaskServiceApplication {
 
     public static void main(String[] args) {

@@ -98,6 +98,62 @@ const routes: RouteRecordRaw[] = [
           },
         ],
       },
+      {
+        path: 'wage',
+        name: 'WageLayout',
+        redirect: '/wage/orders',
+        meta: { title: '工资核算', icon: 'Money' },
+        children: [
+          {
+            path: 'orders',
+            name: 'WageOrders',
+            component: () => import('@/views/wage/Orders.vue'),
+            meta: { title: '生产任务单', icon: 'Tickets' },
+          },
+          {
+            path: 'materials',
+            name: 'WageMaterials',
+            component: () => import('@/views/wage/Materials.vue'),
+            meta: { title: '用料清单查询', icon: 'Box' },
+          },
+          {
+            path: 'paystat',
+            name: 'WagePayStat',
+            component: () => import('@/views/wage/PayStat.vue'),
+            meta: { title: '计件复核', icon: 'DocumentChecked' },
+          },
+          {
+            path: 'wage-manage',
+            name: 'WageManage',
+            component: () => import('@/views/wage/WageManage.vue'),
+            meta: { title: '工资管理', icon: 'Wallet' },
+          },
+          {
+            path: 'staff',
+            name: 'WageStaff',
+            component: () => import('@/views/wage/Staff.vue'),
+            meta: { title: '员工基础资料', icon: 'User' },
+          },
+          {
+            path: 'groups',
+            name: 'WageGroups',
+            component: () => import('@/views/wage/Groups.vue'),
+            meta: { title: '人员小组', icon: 'UserFilled' },
+          },
+          {
+            path: 'price',
+            name: 'WagePrice',
+            component: () => import('@/views/wage/Price.vue'),
+            meta: { title: '单价工序资料', icon: 'PriceTag' },
+          },
+          {
+            path: 'process',
+            name: 'WageProcess',
+            component: () => import('@/views/wage/Process.vue'),
+            meta: { title: '工序资料', icon: 'SetUp' },
+          },
+        ],
+      },
     ],
   },
   {
