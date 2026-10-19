@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="card-box">
       <div class="industrial-panel__title">
@@ -126,7 +126,7 @@
     </div>
 
     <!-- 单条复核 -->
-    <el-dialog v-model="reviewDialog.visible" title="计件明细复核" width="460px">
+    <el-dialog v-model="reviewDialog.visible" title="计件明细复核" width="460px" append-to-body>
       <el-form label-width="100px">
         <el-form-item label="任务单号">
           <el-input :model-value="reviewDialog.taskNo" disabled />
@@ -154,7 +154,7 @@
     </el-dialog>
 
     <!-- 批量录入月份 -->
-    <el-dialog v-model="batchDialog.visible" title="批量录入工资月份" width="420px">
+    <el-dialog v-model="batchDialog.visible" title="批量录入工资月份" width="420px" append-to-body>
       <el-form label-width="90px">
         <el-form-item label="已选明细">
           <el-input :model-value="`${selected.size} 条`" disabled />

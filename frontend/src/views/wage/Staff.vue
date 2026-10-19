@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="card-box">
       <div class="industrial-panel__title">
@@ -56,7 +56,7 @@
         </el-table-column>
       </el-table>
 
-      <el-dialog v-model="dialog.visible" :title="dialog.isEdit ? '编辑员工' : '新增员工'" width="480px">
+      <el-dialog v-model="dialog.visible" :title="dialog.isEdit ? '编辑员工' : '新增员工'" width="480px" append-to-body>
         <el-form :model="form" label-width="90px">
           <el-form-item label="工号" required>
             <el-input v-model="form.username" placeholder="登录账号，如 A001" :disabled="dialog.isEdit" />

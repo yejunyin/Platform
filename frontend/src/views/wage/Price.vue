@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="card-box">
       <div class="industrial-panel__title">
@@ -54,7 +54,7 @@
         </el-table-column>
       </el-table>
 
-      <el-dialog v-model="dialog.visible" :title="dialog.isEdit ? '编辑单价' : '新增单价'" width="500px">
+      <el-dialog v-model="dialog.visible" :title="dialog.isEdit ? '编辑单价' : '新增单价'" width="500px" append-to-body>
         <el-form :model="form" label-width="110px">
           <el-form-item label="子物料代码" required>
             <el-input v-model="form.materialCode" placeholder="子项物料编码" />

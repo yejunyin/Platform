@@ -497,7 +497,6 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
             reasonText = reasonDict.getName();
         }
         final String finalReasonText = reasonText;
-        boolean force = Objects.equals(request.getForceFlag(), 1);
 
         // 10 → 20 批次匹配中（RETURN_TYPE/REASON_* 均以审核回传值为准覆盖写入）
         int affected = updateStatus(call.getId(), DbMaterialCall.STATUS_PENDING_AUDIT,
@@ -511,24 +510,12 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
                         .set(DbMaterialCall::getErrorMsg, null));
         if (affected == 0) throw new IllegalArgumentException("申请单已被处理，请刷新后重试");
 
-        // ===== M3 FIFO 批次匹配 =====
+        // ===== M3 批次构建：每 CALL_ITEM 1 行 batch，退料批次/仓库均从领料来源还原，不查金蝶即时库存 =====
         List<DbMaterialCallItem> items = itemMapper.selectByCallId(call.getId());
         // 物料行备注按 orderCode+materialCode+qty 匹配落库（失败只记日志，不阻断主流程），
         // 同步写回内存 items，供 M6 组装金蝶退料单分录
         applyMaterialMemos(call, items, request.getMaterialMemos());
-        List<DbMaterialCallBatch> allocations;
-        try {
-            allocations = matchFifo(call, items, force);
-        } catch (PartialMatchException e) {
-            // 库存不足且未强制：回退待审核，返回部分匹配
-            updateStatus(call.getId(), DbMaterialCall.STATUS_MATCHING,
-                    DbMaterialCall.STATUS_PENDING_AUDIT, null);
-            MaterialCallOpResultDTO.PartialMatchDTO pm = new MaterialCallOpResultDTO.PartialMatchDTO();
-            pm.setRequestQty(scale2(e.getRequestQty()));
-            pm.setMatchQty(scale2(e.getMatchQty()));
-            log.info("[补退料] 申请{}部分匹配：申请{} 可匹配{}", call.getCallNo(), e.getRequestQty(), e.getMatchQty());
-            return MaterialResult.partial(pm, "库存不足");
-        }
+        List<DbMaterialCallBatch> allocations = buildBatches(call, items);
         LocalDateTime now = LocalDateTime.now();
         for (DbMaterialCallBatch b : allocations) {
             b.setCreateTime(now);
@@ -745,7 +732,7 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
      */
     public static void main(String[] args) {
         
-        String callNo = "TL20260916171759972";
+        String callNo = "TL20261019091759055";
         //来源安灯补退料申请单: TL20260916084822494
         SpringApplication app = new SpringApplication(TaskServiceApplication.class);
         // 工具模式：不启动Web容器（不占用8081端口），不注册/拉取Nacos配置
@@ -799,83 +786,31 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
      * FIFO 匹配：严格按批次入库时间升序分配（STK_Inventory FUpdateTime asc），
      * 扣除进行中申请的预占；单批不足自动拆批；总可用不足且未强制时抛部分匹配。
      */
-    private List<DbMaterialCallBatch> matchFifo(DbMaterialCall call, List<DbMaterialCallItem> items,
-                                                boolean force) {
+    /**
+     * 为每个 CALL_ITEM 生成 1 行 DbMaterialCallBatch（1:1）。
+     * <p>退料场景：退料单的仓库/库存组织/仓位均从生产领料单（queryPickStock）按领料来源还原，
+     * 批次号也取自领料单实际发料批次，与当前金蝶即时库存无关。
+     * 因此不再查询金蝶库存、不再做 FIFO 分配、不再做 shortage 校验。</p>
+     */
+    private List<DbMaterialCallBatch> buildBatches(DbMaterialCall call, List<DbMaterialCallItem> items) {
         if (items == null || items.isEmpty()) {
             throw new IllegalArgumentException("申请单物料明细为空");
         }
-        List<String> materialCodes = items.stream()
-                .map(DbMaterialCallItem::getMaterialCode).distinct().collect(Collectors.toList());
-
-        // 金蝶即时库存（已按FUpdateTime asc 排序 = FIFO）
-        List<KingdeeService.StockRow> stockRows = kingdeeService.queryStock(materialCodes);
-
-        // 进行中申请的预占（物料+批次）
-        Map<String, BigDecimal> reservedMap = new HashMap<>();
-        for (var r : batchMapper.sumActiveReservations()) {
-            reservedMap.put(r.getMaterialCode() + "|" + r.getBatchNo(), nz(r.getQty()));
-        }
-
-        // 可用量池：物料 → 批次池（保持FIFO顺序）
-        Map<String, List<StockPool>> pools = new LinkedHashMap<>();
-        for (KingdeeService.StockRow row : stockRows) {
-            BigDecimal reserved = reservedMap.getOrDefault(
-                    row.getMaterialCode() + "|" + row.getLotNumber(), BigDecimal.ZERO);
-            BigDecimal available = nz(row.getBaseQty()).subtract(reserved);
-            if (available.compareTo(BigDecimal.ZERO) <= 0) continue;
-            pools.computeIfAbsent(row.getMaterialCode(), k -> new ArrayList<>())
-                    .add(new StockPool(row, available));
-        }
-
-        // 按物料汇总申请量（同一物料可能存在多行明细）
-        Map<String, BigDecimal> requestByMaterial = new LinkedHashMap<>();
+        List<DbMaterialCallBatch> result = new ArrayList<>(items.size());
         for (DbMaterialCallItem item : items) {
-            requestByMaterial.merge(item.getMaterialCode(), nz(item.getQty()), BigDecimal::add);
-        }
-        // 逐物料校验可用量：任一物料不足且未强制时抛部分匹配（总量充足不能掩盖单一物料缺口）
-        BigDecimal requestTotal = BigDecimal.ZERO;
-        BigDecimal matchTotal = BigDecimal.ZERO;
-        boolean shortage = false;
-        for (Map.Entry<String, BigDecimal> en : requestByMaterial.entrySet()) {
-            BigDecimal materialAvail = pools.getOrDefault(en.getKey(), Collections.emptyList())
-                    .stream().map(p -> p.available).reduce(BigDecimal.ZERO, BigDecimal::add);
-            requestTotal = requestTotal.add(en.getValue());
-            matchTotal = matchTotal.add(materialAvail.min(en.getValue()));
-            if (materialAvail.compareTo(en.getValue()) < 0) {
-                shortage = true;
-            }
-        }
-        if (shortage && !force) {
-            throw new PartialMatchException(requestTotal, matchTotal);
-        }
-
-        // 逐明细按FIFO分配
-        List<DbMaterialCallBatch> result = new ArrayList<>();
-        for (DbMaterialCallItem item : items) {
-            BigDecimal remaining = nz(item.getQty());
-            List<StockPool> materialPools = pools.getOrDefault(item.getMaterialCode(), Collections.emptyList());
-            for (StockPool pool : materialPools) {
-                if (remaining.compareTo(BigDecimal.ZERO) <= 0) break;
-                if (pool.available.compareTo(BigDecimal.ZERO) <= 0) continue;
-                BigDecimal take = pool.available.min(remaining);
-                pool.available = pool.available.subtract(take);
-                remaining = remaining.subtract(take);
-
-                DbMaterialCallBatch b = new DbMaterialCallBatch();
-                b.setCallId(call.getId());
-                b.setCallItemId(item.getId());
-                b.setMaterialCode(item.getMaterialCode());
-                b.setBatchNo(pool.row.getLotNumber());
-                b.setWarehouse(pool.row.getStockName());
-                b.setWarehouseCode(pool.row.getStockNumber());
-                b.setStockOrg(pool.row.getStockOrgNumber());
-                b.setLocationId(pool.row.getLocationId());
-                b.setQty(scale2(take));
-                b.setWmsFlag(materialProperties.getWms()
-                        .isWmsWarehouse(pool.row.getStockNumber()) ? 1 : 0);
-                b.setReserved(1);
-                result.add(b);
-            }
+            DbMaterialCallBatch b = new DbMaterialCallBatch();
+            b.setCallId(call.getId());
+            b.setCallItemId(item.getId());
+            b.setMaterialCode(item.getMaterialCode());
+            b.setBatchNo(null);       // 退料批次取自领料来源（PRD_PickMtrl.FLot），不在当前库存里挑
+            b.setWarehouse(null);     // 同上，退料单仓库由领料来源 resolvePickStock 决定
+            b.setWarehouseCode(null);
+            b.setStockOrg(null);
+            b.setLocationId(null);
+            b.setQty(scale2(nz(item.getQty())));
+            b.setWmsFlag(0);         // 退料单走领料来源，WMS 标记无用
+            b.setReserved(0);         // 退料不走库存预占，批次行仅承载分录组装
+            result.add(b);
         }
         return result;
     }
@@ -1141,7 +1076,8 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
             // 退料原因取审核人审核通过时回写的值(REASON_ID → FReturnReason.FNumber)
             retEntry.setReturnReasonCode(returnReasonCode);
             retEntry.setStockNumber(pick.getStockNumber());
-            retEntry.setLotNumber(batch.getBatchNo());
+            // 退料批次 = 当初领料发料批次（PRD_PickMtrl.FLot），不从当前金蝶即时库存挑
+            retEntry.setLotNumber(pick.getLotNumber());
             retEntry.setMoBillNo(item.getOrderCode());
             retEntry.setMoId(moEntry.getMoId());
             retEntry.setMoEntryId(moEntry.getEntryId());

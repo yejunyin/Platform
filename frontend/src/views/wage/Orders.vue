@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="card-box">
       <div class="industrial-panel__title">
@@ -112,7 +112,7 @@
     </div>
 
     <!-- 开工提交 -->
-    <el-dialog v-model="startDialog.visible" title="开工提交" width="440px">
+    <el-dialog v-model="startDialog.visible" title="开工提交" width="440px" append-to-body>
       <el-form label-width="90px">
         <el-form-item label="任务单号">
           <el-input :model-value="startDialog.taskNo" disabled />
@@ -130,7 +130,7 @@
     </el-dialog>
 
     <!-- 确认完工 -->
-    <el-dialog v-model="doneDialog.visible" title="确认完工" width="440px">
+    <el-dialog v-model="doneDialog.visible" title="确认完工" width="440px" append-to-body>
       <el-form label-width="100px">
         <el-form-item label="任务单号">
           <el-input :model-value="doneDialog.taskNo" disabled />
@@ -146,7 +146,7 @@
     </el-dialog>
 
     <!-- 修改组别 -->
-    <el-dialog v-model="groupDialog.visible" title="修改加工组别" width="440px">
+    <el-dialog v-model="groupDialog.visible" title="修改加工组别" width="440px" append-to-body>
       <el-form label-width="90px">
         <el-form-item label="任务单号">
           <el-input :model-value="groupDialog.taskNo" disabled />

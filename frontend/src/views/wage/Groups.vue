@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container">
     <div class="card-box">
       <div class="industrial-panel__title">
@@ -33,7 +33,7 @@
         </el-table-column>
       </el-table>
 
-      <el-dialog v-model="dialog.visible" :title="dialog.isEdit ? '编辑小组' : '新增小组'" width="460px">
+      <el-dialog v-model="dialog.visible" :title="dialog.isEdit ? '编辑小组' : '新增小组'" width="460px" append-to-body>
         <el-form :model="form" label-width="90px">
           <el-form-item label="小组名称" required>
             <el-input v-model="form.groupName" placeholder="如：丝印一组" />
