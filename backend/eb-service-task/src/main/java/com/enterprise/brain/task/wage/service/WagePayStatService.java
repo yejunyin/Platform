@@ -151,7 +151,7 @@ public class WagePayStatService {
                     ps.setAmount(personalAmount);
                     ps.setStartTime(order.getStartTime());
                     ps.setProcessName(order.getProcessName());
-                    ps.setSubMaterialCode(c.item.getMaterialCode());
+                    ps.setMaterialCode(c.item.getMaterialCode());
                     ps.setSubMaterialName(c.item.getMaterialName());
                     ps.setSubQty(c.item.getQty());
                     ps.setSubPrice(c.price);

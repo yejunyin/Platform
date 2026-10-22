@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="page-container">
     <div class="card-box">
       <div class="industrial-panel__title">
@@ -34,14 +34,14 @@
         v-loading="loading"
         border
         stripe
-        class="data-table"
+        class="data-table order-table"
         highlight-current-row
         @row-click="selectTask"
       >
         <el-table-column label="生产任务单号" prop="taskNo" width="180" fixed />
         <el-table-column label="产品名称" prop="productName" min-width="200" show-overflow-tooltip />
-        <el-table-column label="子物料代码" prop="subMaterialCode" width="140">
-          <template #default="{ row }">{{ row.subMaterialCode || '—' }}</template>
+        <el-table-column label="物料代码" prop="materialCode" width="140">
+          <template #default="{ row }">{{ row.materialCode || '—' }}</template>
         </el-table-column>
         <el-table-column label="产品数量" prop="productQty" width="100" align="right">
           <template #default="{ row }">{{ row.productQty ?? '—' }}</template>
@@ -172,6 +172,7 @@ import { useUserStore } from '@/stores/user'
 import {
   pageOrders,
   syncOrders,
+  syncOrdersFromMaterials,
   startOrder,
   doneOrder,
   changeOrderGroup,
@@ -184,9 +185,16 @@ import type { WageGroup, WageOrder, WageMaterial } from '@/api/wage/types'
 
 const userStore = useUserStore()
 
-onMounted(() => {
+onMounted(async () => {
   loadGroups()
   loadWorkshopOptions()
+  // 进入页面时：从本地用料清单补金蝶任务单 → 自动刷新
+  try {
+    const { data } = await syncOrdersFromMaterials()
+    if ((data?.added ?? 0) > 0) {
+      ElMessage.info(`从用料清单补齐任务单：新增 ${data?.added} 张`)
+    }
+  } catch { /* 金蝶不可用时静默，不阻塞页面 */ }
   loadOrders()
 })
 
@@ -426,5 +434,43 @@ async function onDelete(row: WageOrder) {
   color: $success-color;
   border-color: $success-color;
   background: rgba(0, 255, 148, 0.08);
+}
+// 操作列 / 生产任务单号列 fixed（sticky 实现）层级与背景修正
+// Element Plus stripe/current-row 背景加在 tr 上，fixed 列 td 必须用**完全不透明**背景
+// 才能彻底遮挡横向滚动过来的中间行内容，否则会出现文字/颜色穿透
+.order-table {
+  // ========= z-index =========
+  :deep(td.el-table-fixed-column--left),
+  :deep(th.el-table-fixed-column--left) { z-index: 4 !important; }
+  :deep(td.el-table-fixed-column--right),
+  :deep(th.el-table-fixed-column--right) { z-index: 5 !important; }
+
+  // ========= 表头 fixed 列 =========
+  :deep(th.el-table-fixed-column--left),
+  :deep(th.el-table-fixed-column--right) {
+    background: linear-gradient(180deg, #121e2e 0%, #0c1522 100%) !important;
+    background-clip: padding-box !important;
+  }
+
+  // ========= body fixed 列（行背景必须不透明才能遮挡 stripe/current-row） =========
+  :deep(tbody td.el-table-fixed-column--left),
+  :deep(tbody td.el-table-fixed-column--right) {
+    background-color: #131c28 !important; // 与卡片底色完全一致
+    background-clip: padding-box !important;
+  }
+  // stripe 斑马纹行 fixed 列
+  :deep(tbody tr.el-table__row--striped td.el-table-fixed-column--left),
+  :deep(tbody tr.el-table__row--striped td.el-table-fixed-column--right) {
+    background-color: #172230 !important; // 比卡片底稍亮，与 stripe 一致但固定列独立不透明
+  }
+  // current-row 选中行 fixed 列（选中底色独立覆盖）
+  :deep(tbody tr.current-row td.el-table-fixed-column--left),
+  :deep(tbody tr.current-row td.el-table-fixed-column--right) {
+    background-color: rgba(26,179,255,0.10) !important;
+  }
+
+  // ========= 固定列边界细分割线 =========
+  :deep(tbody td.el-table-fixed-column--left)  { border-right: 1px solid rgba(255,255,255,0.08); }
+  :deep(tbody td.el-table-fixed-column--right) { border-left:  1px solid rgba(255,255,255,0.08); }
 }
 </style>

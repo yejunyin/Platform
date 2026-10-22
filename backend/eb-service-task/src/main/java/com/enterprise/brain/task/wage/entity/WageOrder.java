@@ -1,5 +1,6 @@
 package com.enterprise.brain.task.wage.entity;
 
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -31,8 +32,9 @@ public class WageOrder implements Serializable {
     @Schema(description = "产品名称")
     private String productName;
 
-    @Schema(description = "子物料代码（单价匹配键）")
-    private String subMaterialCode;
+    @Schema(description = "物料代码（单价匹配键）")
+    @TableField("sub_material_code")
+    private String materialCode;
 
     @Schema(description = "子项物料名称")
     private String subMaterialName;

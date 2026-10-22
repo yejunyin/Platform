@@ -486,10 +486,10 @@ public class KingdeeService {
     // ==================================================================
 
     /**
-     * 通用 ExecuteBillQuery；返回行数组
+     * 通用 ExecuteBillQuery；返回行数组（wage 等跨模块亦可调用）
      */
-    private List<JsonNode> executeBillQuery(String formId, String fieldKeys, String filterString,
-                                            String orderString, int limit) {
+    public List<JsonNode> executeBillQuery(String formId, String fieldKeys, String filterString,
+                                           String orderString, int limit) {
         Map<String, Object> parameters = new HashMap<>();
         parameters.put("FormId", formId);
         parameters.put("FieldKeys", fieldKeys);
@@ -1307,7 +1307,7 @@ public class KingdeeService {
         return errMsg.toString();
     }
 
-    private String textOf(JsonNode node) {
+    public String textOf(JsonNode node) {
         if (node == null || node.isNull()) return null;
         String s = node.asText();
         return s == null || s.isEmpty() || "null".equals(s) ? null : s;
@@ -1325,7 +1325,7 @@ public class KingdeeService {
         }
     }
 
-    private BigDecimal decimalOf(JsonNode node) {
+    public BigDecimal decimalOf(JsonNode node) {
         if (node == null || node.isNull()) return BigDecimal.ZERO;
         try {
             if (node.isNumber()) return node.decimalValue();

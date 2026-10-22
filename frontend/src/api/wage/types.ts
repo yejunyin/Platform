@@ -66,7 +66,7 @@ export interface WageOrder {
   taskNo: string
   feedNo?: string
   productName?: string
-  subMaterialCode?: string
+  materialCode?: string
   subMaterialName?: string
   productQty?: number
   processName?: string
@@ -114,7 +114,7 @@ export interface WagePayStat {
   amount?: number
   startTime?: string
   processName?: string
-  subMaterialCode?: string
+  materialCode?: string
   subMaterialName?: string
   subQty?: number
   subPrice?: number
@@ -149,4 +149,18 @@ export interface WagePage<T> {
   pageNum: number
   pageSize: number
   totalPages: number
+}
+
+/** 金蝶《生产用料清单》(PRD_PPBOM) 专项查询行 */
+export interface PpbomRow {
+  ppbomBillNo?: string
+  moBillNo?: string
+  productCode?: string
+  productName?: string
+  materialCode?: string
+  materialName?: string
+  model?: string
+  needQty?: number
+  unitName?: string
+  createDate?: string
 }

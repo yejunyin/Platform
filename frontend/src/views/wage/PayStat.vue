@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="page-container">
     <div class="card-box">
       <div class="industrial-panel__title">
@@ -71,8 +71,8 @@
         <el-table-column label="工序" prop="processName" width="70">
           <template #default="{ row }">{{ row.processName || '—' }}</template>
         </el-table-column>
-        <el-table-column label="子物料代码" prop="subMaterialCode" width="130">
-          <template #default="{ row }">{{ row.subMaterialCode || '—' }}</template>
+        <el-table-column label="物料代码" prop="materialCode" width="130">
+          <template #default="{ row }">{{ row.materialCode || '—' }}</template>
         </el-table-column>
         <el-table-column label="子项物料名称" prop="subMaterialName" min-width="180" show-overflow-tooltip>
           <template #default="{ row }">{{ row.subMaterialName || '—' }}</template>
