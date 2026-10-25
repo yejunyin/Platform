@@ -38,8 +38,12 @@ public class MaterialProperties {
     public static class Wms {
         /** 是否启用WMS对接；false时所有仓库视为非WMS仓库 */
         private boolean enabled = false;
-        private String baseUrl = "";
+        /** WMS base url（生产领料申请 / 出库申请 共用） */
+        private String baseUrl = "http://192.168.15.20:8081";
+        /** M7 出库申请接口 path */
         private String outboundPath = "/outbound/apply";
+        /** 生产领料申请接口 path */
+        private String pickingPath = "/prod-api/api/upperSystem/productionMaterial/push";
         private int connectTimeoutMs = 5000;
         private int readTimeoutMs = 15000;
         /** 启用WMS管理的仓库编码清单；为空且enabled=true时所有仓库都走WMS */
