@@ -25,16 +25,32 @@
     <el-card v-if="showResult" class="panel result-panel" shadow="never">
       <template #header>
         <div class="panel-header">
-          <span class="panel-title">
-            生产订单 <b>{{ currentProdNo }}</b> · 子项物料清单
-            <el-tag size="small" type="info" style="margin-left:8px">共 {{ ppbomRows.length }} 条</el-tag>
-          </span>
-          <span class="panel-sub">点击右侧「加入领料」将该行物料加入待发送列表</span>
+          <div class="panel-header-left">
+            <span class="panel-title">
+              生产订单 <b>{{ currentProdNo }}</b>
+              <template v-if="ppbomRows.length > 0">
+                <span class="product-meta">
+                  · 产品编码 <b>{{ ppbomRows[0].productCode || '—' }}</b>
+                  · 产品名称 <b>{{ ppbomRows[0].productName || '—' }}</b>
+                </span>
+              </template>
+              <el-tag size="small" type="info" style="margin-left:8px">共 {{ filteredPpbomRows.length }}/{{ ppbomRows.length }} 条</el-tag>
+            </span>
+          </div>
+          <div class="panel-header-right">
+            <el-input
+              v-model="ppbomKeyword"
+              placeholder="🔍 物料编码/名称检索"
+              clearable
+              size="small"
+              style="width:220px"
+            />
+          </div>
         </div>
       </template>
 
       <el-table
-        :data="ppbomRows"
+        :data="filteredPpbomRows"
         v-loading="querying"
         border
         stripe
@@ -49,10 +65,11 @@
           </template>
         </el-table-column>
         <el-table-column label="单位" prop="unitName" width="80" />
-        <el-table-column label="产品编码" prop="productCode" width="140">
-          <template #default="{ row }">{{ row.productCode || '—' }}</template>
+        <el-table-column label="计划跟踪号" prop="planCode" width="160">
+          <template #default="{ row }">
+            <span class="mono">{{ row.planCode || '—' }}</span>
+          </template>
         </el-table-column>
-        <el-table-column label="产品名称" prop="productName" min-width="180" show-overflow-tooltip />
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
             <el-button
@@ -105,6 +122,11 @@
           </template>
         </el-table-column>
         <el-table-column label="单位" prop="unitName" width="80" />
+        <el-table-column label="计划跟踪号" prop="planCode" width="160">
+          <template #default="{ row }">
+            <span class="mono">{{ row.planCode || '—' }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="80" fixed="right">
           <template #default="{ $index }">
             <el-button type="danger" size="small" link @click="removePick($index)">移除</el-button>
@@ -154,6 +176,9 @@
                   </template>
                 </el-table-column>
                 <el-table-column label="单位" prop="unitCode" width="80" />
+                <el-table-column label="计划跟踪号" prop="planCode" width="160">
+                  <template #default="{ row: e }"><span class="mono">{{ e.planCode || '—' }}</span></template>
+                </el-table-column>
               </el-table>
             </div>
           </template>
@@ -234,6 +259,16 @@ const currentProdNo = ref('')
 const showResult = ref(false)
 const querying = ref(false)
 const ppbomRows = ref<PpbomRow[]>([])
+const ppbomKeyword = ref('')
+
+const filteredPpbomRows = computed(() => {
+  const kw = ppbomKeyword.value.trim().toLowerCase()
+  if (!kw) return ppbomRows.value
+  return ppbomRows.value.filter(
+    r => (r.materialCode ?? '').toLowerCase().includes(kw)
+      || (r.materialName ?? '').toLowerCase().includes(kw)
+  )
+})
 
 async function doQuery() {
   const no = searchNo.value.trim()
@@ -244,6 +279,7 @@ async function doQuery() {
   querying.value = true
   showResult.value = true
   currentProdNo.value = no
+  ppbomKeyword.value = ''
   pickingItems.value = []
   try {
     const res = await wmsPickingApi.queryPpbom(no)
@@ -282,7 +318,7 @@ function clearPick() {
 const sendDialogVisible = ref(false)
 const sending = ref(false)
 const sendForm = reactive({
-  lineCode: '',
+  lineCode: 'LB-CX-',
   orgCode: '102',
   deptCode: '1022016',
 })
@@ -292,7 +328,7 @@ function openSendDialog() {
     ElMessage.warning('请先加入领料')
     return
   }
-  sendForm.lineCode = ''
+  sendForm.lineCode = 'LB-CX-'
   sendDialogVisible.value = true
 }
 
@@ -310,7 +346,8 @@ async function confirmSend() {
       productCode: p.productCode,
       productName: p.productName,
       quantity: p._pickQty,
-      unitCode: p.unitName,
+      unitCode: p.unitNumber,
+      planCode: p.planCode,
     }))
     const res = await wmsPickingApi.push({
       productionNo: currentProdNo.value,
@@ -377,6 +414,8 @@ function statusTagType(s?: string): '' | 'success' | 'danger' | 'warning' {
   display: flex; align-items: center; justify-content: space-between;
 }
 .panel-title { font-weight: 600; font-size: 15px; }
+.product-meta { color: #606266; font-weight: 400; margin-left: 6px; }
+.product-meta b { color: #303133; font-weight: 600; }
 .panel-sub { opacity: 0.6; font-size: 12px; }
 
 .search-bar {

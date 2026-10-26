@@ -8,9 +8,9 @@ import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 /**
  * 统一任务中心服务启动类
  */
-@SpringBootApplication
+@SpringBootApplication(scanBasePackages = {"com.enterprise.brain"})
 @EnableDiscoveryClient
-@MapperScan({"com.enterprise.brain.task.mapper", "com.enterprise.brain.task.wage.mapper", "com.enterprise.brain.task.wms.mapper"})
+@MapperScan({"com.enterprise.brain.task.mapper", "com.enterprise.brain.task.wage.mapper", "com.enterprise.brain.task.wms.mapper", "com.enterprise.brain.task.wms.picktask.mapper"})
 public class TaskServiceApplication {
 
     public static void main(String[] args) {

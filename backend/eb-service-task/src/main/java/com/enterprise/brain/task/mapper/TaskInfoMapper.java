@@ -41,7 +41,7 @@ public interface TaskInfoMapper extends BaseMapper<TaskInfo> {
     /**
      * 统计超时任务数
      */
-    @Select("SELECT COUNT(*) FROM task_info WHERE assignee_id = #{assigneeId} AND task_status IN (0, 1) AND deadline_time IS NOT NULL AND deadline_time < NOW() AND deleted = 0")
+    @Select("SELECT COUNT(*) FROM task_info WHERE assignee_id = #{assigneeId} AND task_status IN (0, 1) AND deadline_time IS NOT NULL AND deadline_time < GETDATE() AND deleted = 0")
     Long countOverdueByAssignee(@Param("assigneeId") Long assigneeId);
 
     /**
@@ -59,13 +59,13 @@ public interface TaskInfoMapper extends BaseMapper<TaskInfo> {
     /**
      * 统计今日新增
      */
-    @Select("SELECT COUNT(*) FROM task_info WHERE assignee_id = #{assigneeId} AND DATE(receive_time) = CURDATE() AND deleted = 0")
+    @Select("SELECT COUNT(*) FROM task_info WHERE assignee_id = #{assigneeId} AND CAST(receive_time AS DATE) = CAST(GETDATE() AS DATE) AND deleted = 0")
     Long countTodayNewByAssignee(@Param("assigneeId") Long assigneeId);
 
     /**
      * 统计今日完成
      */
-    @Select("SELECT COUNT(*) FROM task_info WHERE assignee_id = #{assigneeId} AND DATE(complete_time) = CURDATE() AND task_status = 2 AND deleted = 0")
+    @Select("SELECT COUNT(*) FROM task_info WHERE assignee_id = #{assigneeId} AND CAST(complete_time AS DATE) = CAST(GETDATE() AS DATE) AND task_status = 2 AND deleted = 0")
     Long countTodayCompletedByAssignee(@Param("assigneeId") Long assigneeId);
 
     /**

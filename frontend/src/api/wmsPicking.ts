@@ -10,7 +10,12 @@ export interface PpbomRow {
   materialCode?: string
   materialName?: string
   needQty?: number
+  /** 单位编码（推 WMS UnitCode 用，如 PCS/EA/KG） */
+  unitNumber?: string
+  /** 单位名称（展示用，如：个/台/千克） */
   unitName?: string
+  /** 计划跟踪号（PRD_PPBOM.FMtoNo，推 WMS PlanCode 用） */
+  planCode?: string
 }
 
 /** 领料单头 */

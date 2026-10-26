@@ -69,8 +69,30 @@ service.interceptors.response.use(
   (error) => {
     NProgress.done()
     console.error('响应错误:', error)
+
+    // 优先从后端统一响应体中提取 message（RuntimeException 会返回 { code, message, data }）
+    const backendMsg: string | undefined = error?.response?.data?.message
+    // 兜底：如果 data 是字符串（Vite 代理有时把 body 当字符串），也尝试解析
+    const bodyMsg =
+      backendMsg ||
+      (typeof error?.response?.data === 'string'
+        ? (() => {
+            try {
+              const parsed = JSON.parse(error.response.data)
+              return parsed?.message
+            } catch {
+              return undefined
+            }
+          })()
+        : undefined)
+
     if (error.response) {
       const { status } = error.response
+      // 有后端 message 就直接用，覆盖默认 switch 的硬编码
+      if (bodyMsg) {
+        ElMessage.error(bodyMsg)
+        return Promise.reject(new Error(bodyMsg))
+      }
       switch (status) {
         case 400:
           ElMessage.error('请求参数错误')

@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.OffsetDateTime;
@@ -68,6 +69,14 @@ public class WmsService {
                 throw new RuntimeException("WMS 领料申请失败: " + resp.getMessage());
             }
             return resp;
+        } catch (HttpClientErrorException e) {
+            // HTTP 4xx 错误（如 409 Conflict），尝试从 response body 解析 WMS 详细错误消息
+            String wmsDetail = extractWmsMessage(e.getResponseBodyAsString());
+            String msg = wmsDetail != null
+                    ? wmsDetail
+                    : String.format("HTTP %d %s", e.getStatusCode().value(), e.getStatusText());
+            log.error("[WMS] ProductionPicking HTTP 错误: {}", msg);
+            throw new RuntimeException("WMS 领料申请失败: " + msg);
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
@@ -158,5 +167,21 @@ public class WmsService {
             }
         }
         return wmsRestTemplate;
+    }
+
+    /**
+     * 从 WMS HTTP 错误响应 body 中提取 Message 字段。
+     * WMS 返回格式如: {"Code":409,"Success":false,"Message":"物料 xxx 不存在...","Data":{...}}
+     */
+    private String extractWmsMessage(String body) {
+        if (body == null || body.isBlank()) return null;
+        try {
+            JsonNode root = objectMapper.readTree(body);
+            JsonNode msgNode = root.path("Message");
+            if (msgNode.isTextual() && !msgNode.asText().isBlank()) {
+                return msgNode.asText();
+            }
+        } catch (Exception ignored) {}
+        return body;  // 解析不了就原样返回 body 内容
     }
 }

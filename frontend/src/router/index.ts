@@ -58,6 +58,12 @@ const routes: RouteRecordRaw[] = [
             component: () => import('@/views/task/WmsPicking/index.vue'),
             meta: { title: 'WMS叫料', icon: 'Van' },
           },
+          {
+            path: 'wms-pick-task',
+            name: 'TaskWmsPickTask',
+            component: () => import('@/views/task/WmsPickTask/index.vue'),
+            meta: { title: '定时领料任务', icon: 'Timer' },
+          },
         ],
       },
       {

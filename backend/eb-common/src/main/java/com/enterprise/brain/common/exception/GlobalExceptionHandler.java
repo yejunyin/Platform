@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.BindException;
 import org.springframework.validation.FieldError;
@@ -13,6 +14,7 @@ import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
@@ -20,6 +22,9 @@ import java.util.stream.Collectors;
 
 /**
  * 全局异常处理器
+ *
+ * 每个 handler 都显式加 @ResponseStatus 控制 HTTP 状态码，确保前端 axios 的
+ * error 拦截器能通过 error.response.data.message 拿到后端自定义的错误消息。
  */
 @Slf4j
 @RestControllerAdvice
@@ -29,15 +34,27 @@ public class GlobalExceptionHandler {
      * 处理业务异常
      */
     @ExceptionHandler(BusinessException.class)
+    @ResponseStatus(HttpStatus.OK)
     public Result<Void> handleBusinessException(BusinessException e, HttpServletRequest request) {
         log.warn("业务异常 | {} | 原因: {}", request.getRequestURI(), e.getMessage());
         return Result.error(e.getCode(), e.getMessage());
     }
 
     /**
+     * 处理 RuntimeException（如 WMS 推送失败等业务运行时异常），将 message 返回给前端
+     */
+    @ExceptionHandler(RuntimeException.class)
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    public Result<Void> handleRuntimeException(RuntimeException e, HttpServletRequest request) {
+        log.warn("运行时异常 | {} | 原因: {}", request.getRequestURI(), e.getMessage());
+        return Result.error(ResultCode.INTERNAL_SERVER_ERROR, e.getMessage());
+    }
+
+    /**
      * 处理参数校验异常（RequestBody）
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
+    @ResponseStatus(HttpStatus.OK)
     public Result<Void> handleMethodArgumentNotValidException(MethodArgumentNotValidException e,
                                                                HttpServletRequest request) {
         String msg = e.getBindingResult().getFieldErrors().stream()
@@ -51,6 +68,7 @@ public class GlobalExceptionHandler {
      * 处理参数绑定异常（表单提交）
      */
     @ExceptionHandler(BindException.class)
+    @ResponseStatus(HttpStatus.OK)
     public Result<Void> handleBindException(BindException e, HttpServletRequest request) {
         String msg = e.getBindingResult().getFieldErrors().stream()
                 .map(FieldError::getDefaultMessage)
@@ -63,6 +81,7 @@ public class GlobalExceptionHandler {
      * 处理路径参数/请求参数校验异常
      */
     @ExceptionHandler(ConstraintViolationException.class)
+    @ResponseStatus(HttpStatus.OK)
     public Result<Void> handleConstraintViolationException(ConstraintViolationException e,
                                                             HttpServletRequest request) {
         String msg = e.getConstraintViolations().stream()
@@ -76,6 +95,7 @@ public class GlobalExceptionHandler {
      * 处理缺少请求参数异常
      */
     @ExceptionHandler(MissingServletRequestParameterException.class)
+    @ResponseStatus(HttpStatus.OK)
     public Result<Void> handleMissingServletRequestParameterException(MissingServletRequestParameterException e,
                                                                        HttpServletRequest request) {
         String msg = "缺少必要请求参数: " + e.getParameterName();
@@ -87,6 +107,7 @@ public class GlobalExceptionHandler {
      * 处理参数类型不匹配异常
      */
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    @ResponseStatus(HttpStatus.OK)
     public Result<Void> handleMethodArgumentTypeMismatchException(MethodArgumentTypeMismatchException e,
                                                                    HttpServletRequest request) {
         String msg = String.format("参数类型不匹配: %s", e.getName());
@@ -98,6 +119,7 @@ public class GlobalExceptionHandler {
      * 处理请求体不可读异常
      */
     @ExceptionHandler(HttpMessageNotReadableException.class)
+    @ResponseStatus(HttpStatus.OK)
     public Result<Void> handleHttpMessageNotReadableException(HttpMessageNotReadableException e,
                                                                HttpServletRequest request) {
         log.warn("请求体不可读 | {} | 原因: {}", request.getRequestURI(), e.getMessage());
@@ -108,6 +130,7 @@ public class GlobalExceptionHandler {
      * 处理请求方法不支持异常
      */
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    @ResponseStatus(HttpStatus.OK)
     public Result<Void> handleHttpRequestMethodNotSupportedException(HttpRequestMethodNotSupportedException e,
                                                                       HttpServletRequest request) {
         String msg = String.format("不支持的请求方法: %s", e.getMethod());
@@ -119,8 +142,9 @@ public class GlobalExceptionHandler {
      * 处理所有其他未捕获异常
      */
     @ExceptionHandler(Exception.class)
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public Result<Void> handleException(Exception e, HttpServletRequest request) {
         log.error("系统异常 | {} | 堆栈信息: ", request.getRequestURI(), e);
-        return Result.error(ResultCode.INTERNAL_SERVER_ERROR);
+        return Result.error(ResultCode.INTERNAL_SERVER_ERROR, e.getMessage());
     }
 }

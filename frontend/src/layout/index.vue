@@ -57,6 +57,10 @@
             <el-icon><Van /></el-icon>
             <template #title>WMS叫料</template>
           </el-menu-item>
+          <el-menu-item index="/task/wms-pick-task">
+            <el-icon><Timer /></el-icon>
+            <template #title>定时领料任务</template>
+          </el-menu-item>
         </el-sub-menu>
         <el-sub-menu index="/qms">
           <template #title>
@@ -223,7 +227,7 @@ import {
   Cpu, House, Tickets, Clock, Finished, DataAnalysis,
   Bell, User, ArrowDown, SwitchButton, Expand, Fold,
   CircleCheck, Box, Monitor, Files, WarningFilled, TrendCharts,
-  Money, DocumentChecked, Wallet, UserFilled, PriceTag, SetUp, Van
+  Money, DocumentChecked, Wallet, UserFilled, PriceTag, SetUp, Van, Timer
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 

@@ -10,7 +10,8 @@ import java.math.BigDecimal;
  * 用于 WMS 叫料页面：输入生产订单号 → 查出子项物料明细
  *
  * FieldKeys: FBillNo, FMOBillNO, FMaterialID.fnumber, FMaterialID.fname,
- *           FMaterialID2.fnumber, FMaterialID2.fname, FNeedQty2, FUnitID2.fname
+ *           FMaterialID2.fnumber, FMaterialID2.fname, FNeedQty2, FUnitID2.fnumber, FUnitID2.fname,
+ *           FMTONO
  */
 @Data
 @Schema(description = "金蝶生产用料清单行（用于WMS叫料查询）")
@@ -37,6 +38,12 @@ public class WmsPpbomRowVO {
     @Schema(description = "应发数量（FNeedQty2）")
     private BigDecimal needQty;
 
-    @Schema(description = "单位（FUnitID2.fname）")
+    @Schema(description = "单位编码（FUnitID2.fnumber，推 WMS UnitCode 用）")
+    private String unitNumber;
+
+    @Schema(description = "单位名称（FUnitID2.fname，仅展示）")
     private String unitName;
+
+    @Schema(description = "计划跟踪号 / 生产用料清单 FMTONO，推送 WMS PlanCode 用")
+    private String planCode;
 }

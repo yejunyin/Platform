@@ -3,6 +3,7 @@ package com.enterprise.brain.task.wms.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.enterprise.brain.common.exception.BusinessException;
 import com.enterprise.brain.task.service.KingdeeService;
 import com.enterprise.brain.task.service.WmsService;
 import com.enterprise.brain.task.wms.dto.WmsPpbomRowVO;
@@ -15,7 +16,9 @@ import com.enterprise.brain.task.wms.mapper.WmsPickingMapper;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -50,12 +53,16 @@ public class WmsPickingService {
     @Resource
     private WmsService wmsService;
 
+    @Resource
+    private PlatformTransactionManager transactionManager;
+
     // ======================= 1. 查金蝶 PRD_PPBOM =======================
 
     /**
      * 按生产订单号（PRD_PPBOM.FMOBillNO）查询子项物料明细
      * FieldKeys 顺序: FBillNO, FMOBillNO, FMaterialID.fnumber, FMaterialID.fname,
-     *                 FMaterialID2.fnumber, FMaterialID2.fname, FNeedQty2, FUnitID2.fname
+     *                 FMaterialID2.fnumber, FMaterialID2.fname, FNeedQty2,
+     *                 FUnitID2.fnumber, FUnitID2.fname, FMTONO
      */
     public List<WmsPpbomRowVO> queryPpbomByProductionNo(String productionNo) {
         if (productionNo == null || productionNo.isBlank()) {
@@ -63,7 +70,8 @@ public class WmsPickingService {
         }
         String filter = "FMOBillNO = '" + productionNo.replace("'", "''") + "'";
         String fieldKeys = "FBillNo,FMOBillNO,FMaterialID.fnumber,FMaterialID.fname," +
-                "FMaterialID2.fnumber,FMaterialID2.fname,FNeedQty2,FUnitID2.fname";
+                "FMaterialID2.fnumber,FMaterialID2.fname,FNeedQty2,FUnitID2.fnumber,FUnitID2.fname," +
+                "FMTONO";
 
         log.info("[WMS叫料] 查金蝶 PRD_PPBOM filter={}", filter);
         List<JsonNode> rows = kingdeeService.executeBillQuery("PRD_PPBOM", fieldKeys, filter,
@@ -71,7 +79,7 @@ public class WmsPickingService {
 
         List<WmsPpbomRowVO> result = new ArrayList<>();
         for (JsonNode row : rows) {
-            if (!row.isArray() || row.size() < 8) continue;
+            if (!row.isArray() || row.size() < 10) continue;
             WmsPpbomRowVO vo = new WmsPpbomRowVO();
             vo.setPpbomBillNo(kingdeeService.textOf(row.get(0)));
             vo.setProductionNo(kingdeeService.textOf(row.get(1)));
@@ -80,7 +88,9 @@ public class WmsPickingService {
             vo.setMaterialCode(kingdeeService.textOf(row.get(4)));
             vo.setMaterialName(kingdeeService.textOf(row.get(5)));
             vo.setNeedQty(kingdeeService.decimalOf(row.get(6)));
-            vo.setUnitName(kingdeeService.textOf(row.get(7)));
+            vo.setUnitNumber(kingdeeService.textOf(row.get(7)));
+            vo.setUnitName(kingdeeService.textOf(row.get(8)));
+            vo.setPlanCode(kingdeeService.textOf(row.get(9)));
             result.add(vo);
         }
         log.info("[WMS叫料] PRD_PPBOM 返回 {} 条子项明细", result.size());
@@ -141,8 +151,9 @@ public class WmsPickingService {
     /**
      * 推送 WMS 领料申请并持久化：先推 WMS，再把结果（sent/failed）存本地库，
      * 前端一次调用即可，同时保留查询历史的能力。
+     *
+     * 存库用编程式事务强制 commit，确保后续抛 BusinessException 时不会被 @Transactional 回滚。
      */
-    @Transactional
     public WmsPicking pushToWms(WmsPickingSendRequest request) {
         String billNo = "MES-PK-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
                 + "-" + UUID.randomUUID().toString().replace("-", "").substring(0, 4).toUpperCase();
@@ -192,6 +203,8 @@ public class WmsPickingService {
             String json = new ObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(data);
             log.info("[WMS叫料] ====== 推送 WMS ProductionPicking JSON ======\n{}", json);
         } catch (Exception ignored) {}
+
+        // 2. 推 WMS（不涉及事务）
         WmsPickingSendResponse resp;
         RuntimeException pushError = null;
         try {
@@ -204,52 +217,66 @@ public class WmsPickingService {
             resp = null;
         }
 
-        // 3. 无论成功失败都存本地库
+        // 3. 无论成功失败都存本地库（编程式事务，强制 commit）
         LocalDateTime now = LocalDateTime.now();
-        WmsPicking head = new WmsPicking();
-        head.setBillNo(billNo);
-        head.setProductionNo(request.getProductionNo());
-        head.setProductCode(productCode);
-        head.setProductName(productName);
-        head.setLineCode(request.getLineCode());
-        head.setOrgCode(request.getOrgCode());
-        head.setDeptCode(request.getDeptCode());
-        head.setStatus(resp != null && Boolean.TRUE.equals(resp.getSuccess()) ? "sent" : "failed");
-        head.setSendTime(now);
-        head.setCreateTime(now);
-        head.setUpdateTime(now);
-
+        final String finalProductCode = productCode;
+        final String finalProductName = productName;
+        final String finalStatus = resp != null && Boolean.TRUE.equals(resp.getSuccess()) ? "sent" : "failed";
+        final String finalMessage;
+        final String finalRequestId;
+        final String finalWmsTaskNo;
         if (resp != null) {
-            head.setMessage(resp.getMessage());
-            if (resp.getData() != null) {
-                head.setRequestId(resp.getData().getRequestId());
-                head.setWmsTaskNo(resp.getData().getWmsTaskNo());
-            }
+            finalMessage = resp.getMessage();
+            finalRequestId = resp.getData() != null ? resp.getData().getRequestId() : null;
+            finalWmsTaskNo = resp.getData() != null ? resp.getData().getWmsTaskNo() : null;
         } else {
-            head.setMessage(pushError != null ? pushError.getMessage() : "推送异常");
-        }
-        pickingMapper.insert(head);
-
-        itemNo = 1;
-        for (WmsPickingSendRequest.Entry e : request.getEntries()) {
-            WmsPickingEntry entry = new WmsPickingEntry();
-            entry.setPickingId(head.getId());
-            entry.setItemNo(itemNo++);
-            entry.setMaterialCode(e.getMaterialCode());
-            entry.setMaterialName(e.getMaterialName());
-            entry.setPickedQty(e.getQuantity());
-            entry.setUnitCode(e.getUnitCode());
-            entry.setPlanCode(e.getPlanCode());
-            entry.setStationCode(e.getProductionStationCode());
-            entry.setWarehouseCode(e.getOutWarehouseCode());
-            entry.setCreateTime(now);
-            entry.setUpdateTime(now);
-            entryMapper.insert(entry);
+            finalMessage = pushError != null ? pushError.getMessage() : "推送异常";
+            finalRequestId = null;
+            finalWmsTaskNo = null;
         }
 
-        // 4. 推送失败时把异常抛给前端（但库已存）
-        if (!"sent".equals(head.getStatus())) {
-            throw new RuntimeException("WMS 推送失败：" + head.getMessage());
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        WmsPicking head = tx.execute(status -> {
+            WmsPicking h = new WmsPicking();
+            h.setBillNo(billNo);
+            h.setProductionNo(request.getProductionNo());
+            h.setProductCode(finalProductCode);
+            h.setProductName(finalProductName);
+            h.setLineCode(request.getLineCode());
+            h.setOrgCode(request.getOrgCode());
+            h.setDeptCode(request.getDeptCode());
+            h.setStatus(finalStatus);
+            h.setMessage(finalMessage);
+            h.setRequestId(finalRequestId);
+            h.setWmsTaskNo(finalWmsTaskNo);
+            h.setSendTime(now);
+            h.setCreateTime(now);
+            h.setUpdateTime(now);
+            pickingMapper.insert(h);
+
+            int iNo = 1;
+            for (WmsPickingSendRequest.Entry e : request.getEntries()) {
+                WmsPickingEntry entry = new WmsPickingEntry();
+                entry.setPickingId(h.getId());
+                entry.setItemNo(iNo++);
+                entry.setMaterialCode(e.getMaterialCode());
+                entry.setMaterialName(e.getMaterialName());
+                entry.setPickedQty(e.getQuantity());
+                entry.setUnitCode(e.getUnitCode());
+                entry.setPlanCode(e.getPlanCode());
+                entry.setStationCode(e.getProductionStationCode());
+                entry.setWarehouseCode(e.getOutWarehouseCode());
+                entry.setCreateTime(now);
+                entry.setUpdateTime(now);
+                entryMapper.insert(entry);
+            }
+            return h;
+        });
+        log.info("[WMS叫料] 存库完成 id={}, status={}", head != null ? head.getId() : -1, finalStatus);
+
+        // 4. 推送失败时抛 BusinessException，GlobalExceptionHandler 会把 message 返回前端
+        if (!"sent".equals(finalStatus)) {
+            throw new BusinessException("WMS 推送失败：" + finalMessage);
         }
         return head;
     }
