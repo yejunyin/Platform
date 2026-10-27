@@ -70,6 +70,9 @@
             <span class="mono">{{ row.planCode || '—' }}</span>
           </template>
         </el-table-column>
+        <el-table-column label="发料仓库" prop="pickStock" width="140">
+          <template #default="{ row }">{{ row.pickStock || '—' }}</template>
+        </el-table-column>
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
             <el-button
@@ -126,6 +129,9 @@
           <template #default="{ row }">
             <span class="mono">{{ row.planCode || '—' }}</span>
           </template>
+        </el-table-column>
+        <el-table-column label="发料仓库" prop="pickStock" width="140">
+          <template #default="{ row }">{{ row.pickStock || '—' }}</template>
         </el-table-column>
         <el-table-column label="操作" width="80" fixed="right">
           <template #default="{ $index }">
@@ -248,7 +254,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Tickets, Search, Promotion } from '@element-plus/icons-vue'
 import { wmsPickingApi, type PpbomRow, type PickingEntry } from '@/api/wmsPicking'
@@ -263,11 +269,15 @@ const ppbomKeyword = ref('')
 
 const filteredPpbomRows = computed(() => {
   const kw = ppbomKeyword.value.trim().toLowerCase()
-  if (!kw) return ppbomRows.value
-  return ppbomRows.value.filter(
-    r => (r.materialCode ?? '').toLowerCase().includes(kw)
-      || (r.materialName ?? '').toLowerCase().includes(kw)
-  )
+  let list = kw
+    ? ppbomRows.value.filter(
+        r => (r.materialCode ?? '').toLowerCase().includes(kw)
+          || (r.materialName ?? '').toLowerCase().includes(kw)
+      )
+    : [...ppbomRows.value]
+  // 按物料编码升序排序
+  list.sort((a, b) => (a.materialCode ?? '').localeCompare(b.materialCode ?? ''))
+  return list
 })
 
 async function doQuery() {

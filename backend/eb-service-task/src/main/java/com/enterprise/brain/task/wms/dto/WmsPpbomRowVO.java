@@ -46,4 +46,7 @@ public class WmsPpbomRowVO {
 
     @Schema(description = "计划跟踪号 / 生产用料清单 FMTONO，推送 WMS PlanCode 用")
     private String planCode;
+
+    @Schema(description = "发料仓库（FPickStockId，基础资料属性，显示中文仓库名）")
+    private String pickStock;
 }

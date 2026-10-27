@@ -211,15 +211,15 @@ const current = ref<WageOrder | null>(null)
 const query = reactive({
   keyword: '',
   workshop: '',
-  groupId: undefined as number | undefined,
+  groupId: undefined as string | undefined,
   bizStatus: '',
   settleStatus: '',
 })
 const page = reactive({ pageNum: 1, pageSize: 20, total: 0 })
 
-const startDialog = reactive({ visible: false, id: 0, taskNo: '', groupId: undefined as number | undefined })
-const doneDialog = reactive({ visible: false, id: 0, taskNo: '', stockInQty: 0 })
-const groupDialog = reactive({ visible: false, id: 0, taskNo: '', groupId: undefined as number | undefined })
+const startDialog = reactive({ visible: false, id: '' as string, taskNo: '', groupId: undefined as string | undefined })
+const doneDialog = reactive({ visible: false, id: '' as string, taskNo: '', stockInQty: 0 })
+const groupDialog = reactive({ visible: false, id: '' as string, taskNo: '', groupId: undefined as string | undefined })
 
 function fmtTime(t?: string) {
   if (!t) return '—'

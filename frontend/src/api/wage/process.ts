@@ -14,6 +14,6 @@ export function saveProcess(data: Partial<WageProcess>) {
   return request.post<unknown, R<WageProcess>>(BASE, data)
 }
 
-export function deleteProcess(id: number) {
+export function deleteProcess(id: string) {
   return request.delete<unknown, R<boolean>>(`${BASE}/${id}`)
 }

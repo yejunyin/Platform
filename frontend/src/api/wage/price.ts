@@ -20,6 +20,6 @@ export function savePrice(data: Partial<WagePrice>) {
   return request.post<unknown, R<WagePrice>>(BASE, data)
 }
 
-export function deletePrice(id: number) {
+export function deletePrice(id: string) {
   return request.delete<unknown, R<boolean>>(`${BASE}/${id}`)
 }

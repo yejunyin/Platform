@@ -182,6 +182,11 @@ public class WageOrderService {
                 if (d.getMaterialCode() == null || d.getMaterialCode().isEmpty()) {
                     continue;
                 }
+                // 工资核算只关心丝印/移印工序相关物料，其余跳过
+                String name = d.getMaterialName();
+                if (name == null || (!name.contains("丝印") && !name.contains("移印"))) {
+                    continue;
+                }
                 if (materialMapper.countByTaskAndMaterial(order.getTaskNo(), d.getMaterialCode()) > 0) {
                     continue;
                 }

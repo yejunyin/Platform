@@ -202,7 +202,7 @@ const rows = ref<WagePayStat[]>([])
 const groups = ref<WageGroup[]>([])
 const pageNum = ref(1)
 const pageSize = ref(50)
-const query = reactive({ month: '', groupId: undefined as number | undefined, keyword: '' })
+const query = reactive({ month: '', groupId: undefined as string | undefined, keyword: '' })
 
 const selected = reactive(new Set<number>())
 
@@ -213,7 +213,7 @@ const pageRows = computed(() => {
 
 const reviewDialog = reactive({
   visible: false,
-  id: 0,
+  id: '' as string,
   taskNo: '',
   staffName: '',
   staffNo: '',

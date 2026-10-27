@@ -8,27 +8,27 @@ Standard Commons Logging discovery in action with spring-jcl: please remove comm
  =========|_|==============|___/=/_/_/_/
  :: Spring Boot ::                (v3.2.5)
 
-2026-10-25T08:48:21.375+08:00  INFO 61664 --- [eb-service-task] [           main] c.e.brain.task.TaskServiceApplication    : Starting TaskServiceApplication v1.0.0 using Java 17.0.20.1 with PID 61664 (E:\叶的共享文件\Platform\backend\eb-service-task\target\eb-service-task-1.0.0.jar started by Administrator in E:\叶的共享文件\Platform)
-2026-10-25T08:48:21.386+08:00  INFO 61664 --- [eb-service-task] [           main] c.e.brain.task.TaskServiceApplication    : The following 1 profile is active: "dev"
-2026-10-25T08:48:23.550+08:00  INFO 61664 --- [eb-service-task] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
-2026-10-25T08:48:23.553+08:00  INFO 61664 --- [eb-service-task] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data Redis repositories in DEFAULT mode.
-2026-10-25T08:48:23.589+08:00  INFO 61664 --- [eb-service-task] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 18 ms. Found 0 Redis repository interfaces.
-2026-10-25T08:48:23.875+08:00  INFO 61664 --- [eb-service-task] [           main] o.s.cloud.context.scope.GenericScope     : BeanFactory id=970a3d30-fda1-332e-9675-6dd94241ba04
-2026-10-25T08:48:24.897+08:00  INFO 61664 --- [eb-service-task] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8081 (http)
-2026-10-25T08:48:24.908+08:00  INFO 61664 --- [eb-service-task] [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
-2026-10-25T08:48:24.909+08:00  INFO 61664 --- [eb-service-task] [           main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.20]
-2026-10-25T08:48:24.961+08:00  INFO 61664 --- [eb-service-task] [           main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
-2026-10-25T08:48:24.963+08:00  INFO 61664 --- [eb-service-task] [           main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 3426 ms
+2026-10-26T16:26:29.240+08:00  INFO 18112 --- [eb-service-task] [           main] c.e.brain.task.TaskServiceApplication    : Starting TaskServiceApplication v1.0.0 using Java 17.0.20.1 with PID 18112 (E:\叶的共享文件\Platform\backend\eb-service-task\target\eb-service-task-1.0.0.jar started by Administrator in E:\叶的共享文件\Platform)
+2026-10-26T16:26:29.248+08:00  INFO 18112 --- [eb-service-task] [           main] c.e.brain.task.TaskServiceApplication    : The following 1 profile is active: "dev"
+2026-10-26T16:26:30.863+08:00  INFO 18112 --- [eb-service-task] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
+2026-10-26T16:26:30.868+08:00  INFO 18112 --- [eb-service-task] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data Redis repositories in DEFAULT mode.
+2026-10-26T16:26:30.901+08:00  INFO 18112 --- [eb-service-task] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 18 ms. Found 0 Redis repository interfaces.
+2026-10-26T16:26:31.189+08:00  INFO 18112 --- [eb-service-task] [           main] o.s.cloud.context.scope.GenericScope     : BeanFactory id=c052db7e-32db-30c1-b3b9-89ce8f9e6d94
+2026-10-26T16:26:32.099+08:00  INFO 18112 --- [eb-service-task] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8081 (http)
+2026-10-26T16:26:32.131+08:00  INFO 18112 --- [eb-service-task] [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+2026-10-26T16:26:32.132+08:00  INFO 18112 --- [eb-service-task] [           main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.20]
+2026-10-26T16:26:32.221+08:00  INFO 18112 --- [eb-service-task] [           main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+2026-10-26T16:26:32.225+08:00  INFO 18112 --- [eb-service-task] [           main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 2874 ms
 Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
-2026-10-25T08:48:25.890+08:00  INFO 61664 --- [eb-service-task] [           main] c.a.d.s.b.a.DruidDataSourceAutoConfigure : Init DruidDataSource
-2026-10-25T08:48:26.831+08:00  INFO 61664 --- [eb-service-task] [           main] com.alibaba.druid.pool.DruidDataSource   : {dataSource-1} inited
+2026-10-26T16:26:32.887+08:00  INFO 18112 --- [eb-service-task] [           main] c.a.d.s.b.a.DruidDataSourceAutoConfigure : Init DruidDataSource
+2026-10-26T16:26:33.444+08:00  INFO 18112 --- [eb-service-task] [           main] com.alibaba.druid.pool.DruidDataSource   : {dataSource-1} inited
 Logging initialized using 'class org.apache.ibatis.logging.stdout.StdOutImpl' adapter.
-Initialization Sequence datacenterId:0 workerId:9
+Initialization Sequence datacenterId:0 workerId:27
  _ _   |_  _ _|_. ___ _ |    _ 
 | | |\/|_)(_| | |_\  |_)||_|_\ 
      /               |         
                         3.5.5 
-2026-10-25T08:48:28.963+08:00  INFO 61664 --- [eb-service-task] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 8081 (http) with context path ''
-2026-10-25T08:48:30.029+08:00  INFO 61664 --- [eb-service-task] [           main] o.s.cloud.commons.util.InetUtils         : Cannot determine local hostname
-2026-10-25T08:48:30.627+08:00  INFO 61664 --- [eb-service-task] [           main] o.s.b.a.e.web.EndpointLinksResolver      : Exposing 1 endpoint(s) beneath base path '/actuator'
-2026-10-25T08:48:30.648+08:00  INFO 61664 --- [eb-service-task] [           main] c.e.brain.task.TaskServiceApplication    : Started TaskServiceApplication in 11.073 seconds (process running for 11.699)
+2026-10-26T16:26:35.141+08:00  INFO 18112 --- [eb-service-task] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 8081 (http) with context path ''
+2026-10-26T16:26:36.201+08:00  INFO 18112 --- [eb-service-task] [           main] o.s.cloud.commons.util.InetUtils         : Cannot determine local hostname
+2026-10-26T16:26:36.497+08:00  INFO 18112 --- [eb-service-task] [           main] o.s.b.a.e.web.EndpointLinksResolver      : Exposing 1 endpoint(s) beneath base path '/actuator'
+2026-10-26T16:26:36.513+08:00  INFO 18112 --- [eb-service-task] [           main] c.e.brain.task.TaskServiceApplication    : Started TaskServiceApplication in 8.912 seconds (process running for 9.462)

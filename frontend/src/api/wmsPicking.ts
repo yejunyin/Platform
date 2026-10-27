@@ -16,6 +16,8 @@ export interface PpbomRow {
   unitName?: string
   /** 计划跟踪号（PRD_PPBOM.FMtoNo，推 WMS PlanCode 用） */
   planCode?: string
+  /** 发料仓库（FPickStockId，基础资料属性，中文仓库名） */
+  pickStock?: string
 }
 
 /** 领料单头 */

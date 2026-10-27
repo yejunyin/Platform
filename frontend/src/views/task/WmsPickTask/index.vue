@@ -62,6 +62,9 @@
                 <span class="mono">{{ row.planCode || '—' }}</span>
               </template>
             </el-table-column>
+            <el-table-column label="发料仓库" prop="pickStock" width="140">
+              <template #default="{ row }">{{ row.pickStock || '—' }}</template>
+            </el-table-column>
             <el-table-column label="操作" width="140" fixed="right">
               <template #default="{ row }">
                 <el-button
@@ -127,6 +130,9 @@
               <template #default="{ row }">
                 <span class="mono">{{ row.planCode || '—' }}</span>
               </template>
+            </el-table-column>
+            <el-table-column label="发料仓库" prop="pickStock" width="140">
+              <template #default="{ row }">{{ row.pickStock || '—' }}</template>
             </el-table-column>
             <el-table-column label="操作" width="80" fixed="right">
               <template #default="{ $index }">
@@ -342,11 +348,15 @@ const ppbomKeyword = ref('')
 
 const filteredPpbomRows = computed(() => {
   const kw = ppbomKeyword.value.trim().toLowerCase()
-  if (!kw) return ppbomRows.value
-  return ppbomRows.value.filter(
-    r => (r.materialCode ?? '').toLowerCase().includes(kw)
-      || (r.materialName ?? '').toLowerCase().includes(kw)
-  )
+  let list = kw
+    ? ppbomRows.value.filter(
+        r => (r.materialCode ?? '').toLowerCase().includes(kw)
+          || (r.materialName ?? '').toLowerCase().includes(kw)
+      )
+    : [...ppbomRows.value]
+  // 按物料编码升序排序
+  list.sort((a, b) => (a.materialCode ?? '').localeCompare(b.materialCode ?? ''))
+  return list
 })
 
 async function doQuery() {

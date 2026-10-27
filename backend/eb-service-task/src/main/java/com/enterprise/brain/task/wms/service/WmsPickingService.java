@@ -62,7 +62,8 @@ public class WmsPickingService {
      * 按生产订单号（PRD_PPBOM.FMOBillNO）查询子项物料明细
      * FieldKeys 顺序: FBillNO, FMOBillNO, FMaterialID.fnumber, FMaterialID.fname,
      *                 FMaterialID2.fnumber, FMaterialID2.fname, FNeedQty2,
-     *                 FUnitID2.fnumber, FUnitID2.fname, FMTONO
+     *                 FUnitID2.fnumber, FUnitID2.fname, FMTONO,
+     *                 FPickStockId
      */
     public List<WmsPpbomRowVO> queryPpbomByProductionNo(String productionNo) {
         if (productionNo == null || productionNo.isBlank()) {
@@ -71,7 +72,7 @@ public class WmsPickingService {
         String filter = "FMOBillNO = '" + productionNo.replace("'", "''") + "'";
         String fieldKeys = "FBillNo,FMOBillNO,FMaterialID.fnumber,FMaterialID.fname," +
                 "FMaterialID2.fnumber,FMaterialID2.fname,FNeedQty2,FUnitID2.fnumber,FUnitID2.fname," +
-                "FMTONO";
+                "FMTONO,FPickStockId";
 
         log.info("[WMS叫料] 查金蝶 PRD_PPBOM filter={}", filter);
         List<JsonNode> rows = kingdeeService.executeBillQuery("PRD_PPBOM", fieldKeys, filter,
@@ -79,7 +80,7 @@ public class WmsPickingService {
 
         List<WmsPpbomRowVO> result = new ArrayList<>();
         for (JsonNode row : rows) {
-            if (!row.isArray() || row.size() < 10) continue;
+            if (!row.isArray() || row.size() < 11) continue;
             WmsPpbomRowVO vo = new WmsPpbomRowVO();
             vo.setPpbomBillNo(kingdeeService.textOf(row.get(0)));
             vo.setProductionNo(kingdeeService.textOf(row.get(1)));
@@ -91,6 +92,7 @@ public class WmsPickingService {
             vo.setUnitNumber(kingdeeService.textOf(row.get(7)));
             vo.setUnitName(kingdeeService.textOf(row.get(8)));
             vo.setPlanCode(kingdeeService.textOf(row.get(9)));
+            vo.setPickStock(kingdeeService.textOf(row.get(10)));
             result.add(vo);
         }
         log.info("[WMS叫料] PRD_PPBOM 返回 {} 条子项明细", result.size());

@@ -109,7 +109,7 @@ const saving = ref(false)
 const list = ref<WagePrice[]>([])
 const processList = ref<WageProcess[]>([])
 const query = reactive({ keyword: '', processName: '', status: '' })
-const dialog = reactive({ visible: false, isEdit: false, id: 0 })
+const dialog = reactive({ visible: false, isEdit: false, id: '' as string })
 const form = reactive({
   materialCode: '',
   materialName: '',

@@ -71,7 +71,7 @@ onMounted(load)
 const loading = ref(false)
 const saving = ref(false)
 const groups = ref<WageGroup[]>([])
-const dialog = reactive({ visible: false, isEdit: false, id: 0 })
+const dialog = reactive({ visible: false, isEdit: false, id: '' as string })
 const form = reactive({
   groupName: '',
   leaderNo: '',
@@ -95,7 +95,7 @@ function openAdd() {
   form.defaultProcess = ''
   form.remark = ''
   dialog.isEdit = false
-  dialog.id = 0
+  dialog.id = ''
   dialog.visible = true
 }
 

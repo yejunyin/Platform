@@ -1,6 +1,6 @@
 import request from '@/utils/request'
 import type { AxiosPromise } from 'axios'
-import type { PpbomRow } from './wmsPicking'
+export type { PpbomRow } from './wmsPicking'
 
 /** 定时领料任务主 */
 export interface PickTaskHead {

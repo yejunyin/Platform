@@ -71,7 +71,7 @@ const loading = ref(false)
 const saving = ref(false)
 const keyword = ref('')
 const list = ref<WageProcess[]>([])
-const dialog = reactive({ visible: false, isEdit: false, id: 0 })
+const dialog = reactive({ visible: false, isEdit: false, id: '' as string })
 const form = reactive({ processCode: '', processName: '', workshop: '', remark: '' })
 
 async function load() {

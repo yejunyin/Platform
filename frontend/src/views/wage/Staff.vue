@@ -114,18 +114,18 @@ const loading = ref(false)
 const saving = ref(false)
 const groups = ref<WageGroup[]>([])
 const staffList = ref<WageStaff[]>([])
-const query = reactive<{ keyword: string; groupId?: number; status?: number }>({
+const query = reactive<{ keyword: string; groupId?: string; status?: number }>({
   keyword: '',
   groupId: undefined,
   status: undefined,
 })
 
-const dialog = reactive({ visible: false, isEdit: false, userId: 0 })
+const dialog = reactive({ visible: false, isEdit: false, userId: '' as string })
 const form = reactive({
   username: '',
   realName: '',
   jobType: '员工',
-  groupId: undefined as number | undefined,
+  groupId: undefined as string | undefined,
   coef: 1,
   hireDate: '' as string | undefined,
 })

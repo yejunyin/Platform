@@ -1,8 +1,10 @@
 // 工资核算模块类型定义（字段名与后端/数据库一致，使用规范命名）
+// 注意：后端 Jackson 全局配置 Long → String，所有主键/外键 ID 都按 string 处理，
+// 避免 JS Number 精度丢失（雪花 ID 19 位 > Number.MAX_SAFE_INTEGER ≈ 9e15）
 
 /** 人员小组 */
 export interface WageGroup {
-  id: number
+  id: string
   groupName: string
   leaderNo?: string
   defaultProcess?: string
@@ -15,14 +17,14 @@ export interface WageGroup {
 
 /** 员工工资资料（sys_user 左联 wage_staff_ext / wage_group） */
 export interface WageStaff {
-  userId: number
+  userId: string
   username: string
   realName: string
   /** 在职状态 1在职 0离职（sys_user.status） */
   status: number
-  extId?: number
+  extId?: string
   jobType: string
-  groupId?: number
+  groupId?: string
   groupName?: string
   coef: number
   hireDate?: string
@@ -32,7 +34,7 @@ export interface WageStaffSave {
   username: string
   realName: string
   jobType: string
-  groupId?: number
+  groupId?: string
   coef: number
   hireDate?: string
 }
@@ -41,7 +43,7 @@ export type WageStaffUpdate = Omit<WageStaffSave, 'username'>
 
 /** 工序基础资料 */
 export interface WageProcess {
-  id: number
+  id: string
   processCode: string
   processName: string
   workshop?: string
@@ -50,7 +52,7 @@ export interface WageProcess {
 
 /** 单价工序资料 */
 export interface WagePrice {
-  id: number
+  id: string
   materialCode: string
   materialName?: string
   processName: string
@@ -62,7 +64,7 @@ export interface WagePrice {
 
 /** 生产任务单 */
 export interface WageOrder {
-  id: number
+  id: string
   taskNo: string
   feedNo?: string
   productName?: string
@@ -72,7 +74,7 @@ export interface WageOrder {
   processName?: string
   workshop?: string
   unitPrice: number
-  groupId?: number
+  groupId?: string
   groupName?: string
   confirmStatus: string
   bizStatus: string
@@ -87,7 +89,7 @@ export interface WageOrder {
 
 /** 生产用料清单 */
 export interface WageMaterial {
-  id: number
+  id: string
   taskNo: string
   feedNo?: string
   bizStatus: string
@@ -99,10 +101,10 @@ export interface WageMaterial {
 
 /** 计件统计明细 */
 export interface WagePayStat {
-  id: number
+  id: string
   wageMonth: string
   taskNo: string
-  groupId?: number
+  groupId?: string
   groupName?: string
   staffName: string
   staffNo: string
@@ -133,7 +135,7 @@ export interface WageSummary {
   wageMonth: string
   staffNo: string
   staffName: string
-  groupId?: number
+  groupId?: string
   groupName?: string
   jobType?: string
   detailCount: number

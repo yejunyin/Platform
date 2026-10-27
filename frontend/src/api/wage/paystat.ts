@@ -5,7 +5,7 @@ const BASE = '/wage/paystat'
 
 export interface PayStatQuery {
   month?: string
-  groupId?: number
+  groupId?: string
   keyword?: string
 }
 
@@ -23,11 +23,11 @@ export function recalcPayStat(operator?: string) {
 }
 
 /** 单条复核 */
-export function reviewPayStat(id: number, data: { wageMonth: string; amount?: number; remark?: string; reviewer: string }) {
+export function reviewPayStat(id: string, data: { wageMonth: string; amount?: number; remark?: string; reviewer: string }) {
   return request.put<unknown, R<WagePayStat>>(`${BASE}/${id}`, data)
 }
 
 /** 批量录入工资月份 */
-export function batchUpdateMonth(data: { ids: number[]; wageMonth: string; remark?: string }) {
+export function batchUpdateMonth(data: { ids: string[]; wageMonth: string; remark?: string }) {
   return request.put<unknown, R<{ count: number }>>(`${BASE}/batch-month`, data)
 }

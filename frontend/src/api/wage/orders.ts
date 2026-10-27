@@ -5,7 +5,7 @@ const BASE = '/wage/orders'
 
 export interface OrderQuery {
   workshop?: string
-  groupId?: number
+  groupId?: string
   settleStatus?: string
   bizStatus?: string
   keyword?: string
@@ -48,25 +48,25 @@ export function syncOrdersFromMaterials() {
   return request.post<unknown, R<{ added: number }>>(`${BASE}/sync-from-materials`)
 }
 
-export function startOrder(id: number, data: { groupId: number; confirmerNo?: string; confirmerName?: string }) {
+export function startOrder(id: string, data: { groupId: string; confirmerNo?: string; confirmerName?: string }) {
   return request.post<unknown, R<boolean>>(`${BASE}/${id}/start`, data)
 }
 
-export function doneOrder(id: number, data: { stockInQty?: number; finishUser?: string }) {
+export function doneOrder(id: string, data: { stockInQty?: number; finishUser?: string }) {
   return request.post<unknown, R<boolean>>(`${BASE}/${id}/done`, data)
 }
 
-export function changeOrderGroup(id: number, groupId: number) {
+export function changeOrderGroup(id: string, groupId: string) {
   return request.put<unknown, R<boolean>>(`${BASE}/${id}/group`, { groupId })
 }
 
-export function deleteOrder(id: number) {
+export function deleteOrder(id: string) {
   return request.delete<unknown, R<boolean>>(`${BASE}/${id}`)
 }
 
 /**
  * 查询金蝶《生产用料清单》PRD_PPBOM（子项物料名称关键词 + 创建日期范围）
- * @param keyword 关键词，多个用逗号分隔（如 "丝印,移印"）；空则不加关键词条件
+ * @param keyword 关键词，多个用逗号分隔（如 "丝印,移印"）；空时不加关键词条件
  * @param startDate 创建日期起始 yyyy-MM-dd；空则默认近3个月
  * @param limit 最大返回条数；空或 0 取默认 2000
  */

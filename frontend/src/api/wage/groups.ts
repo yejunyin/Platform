@@ -15,6 +15,6 @@ export function saveGroup(data: Partial<WageGroup>) {
   return request.post<unknown, R<WageGroup>>(BASE, data)
 }
 
-export function deleteGroup(id: number) {
+export function deleteGroup(id: string) {
   return request.delete<unknown, R<boolean>>(`${BASE}/${id}`)
 }
