@@ -75,10 +75,11 @@ public class WageOrderController {
     /**
      * 从本地 wage_material 的 task_no → 金蝶 PRD_PPBOM → 同步到 wage_order
      * <p>用于"金蝶标准接口查询"保存用料清单后，进入生产任务单页签自动补齐任务单头信息。</p>
+     * <p>注意：bizStatus（业务状态）、confirmStatus、settleStatus 等业务字段为工资核算模块本地维护，不同步自金蝶。</p>
      */
     @PostMapping("/sync-from-materials")
     @Operation(summary = "从本地用料清单同步任务单",
-            description = "取 wage_material 所有 task_no（生产订单号），剔除 wage_order 已存在的，剩余去金蝶 PRD_PPBOM 查父项产品后写入 wage_order")
+            description = "取 wage_material 所有 task_no，去金蝶 PRD_MO 查生产订单后写入 wage_order；bizStatus/confirmStatus/settleStatus/gid 等本地业务字段不参与同步")
     public Result<Map<String, Integer>> syncFromMaterials() {
         int added = orderService.syncFromMaterials();
         return Result.success("同步完成", Map.of("added", added));

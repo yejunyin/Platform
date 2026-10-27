@@ -92,11 +92,14 @@ public class WagePayStatService {
             // 该工单全部用料子项（按任务单号，不能按单个物料代码过滤）
             List<WageMaterial> items = materialMapper.selectMaterials(order.getTaskNo(), null, null);
             if (items.isEmpty()) {
+                log.warn("[工资核算] 工单 {} 跳过：wage_material 无用料子项（物料编码={}，工序={}）",
+                        order.getTaskNo(), order.getMaterialCode(), order.getProcessName());
                 continue;
             }
 
             // 逐子项算明细金额与工单组级金额
             BigDecimal groupAmount = BigDecimal.ZERO;
+            int priced = 0, unpriced = 0;
             List<ItemCalc> calcs = new ArrayList<>();
             for (WageMaterial m : items) {
                 WagePrice price = priceService.matchPrice(m.getMaterialCode(), order.getProcessName());
@@ -106,15 +109,18 @@ public class WagePayStatService {
                 BigDecimal detailAmount = subQty.multiply(subPrice).setScale(2, RoundingMode.HALF_UP);
                 groupAmount = groupAmount.add(detailAmount);
                 calcs.add(new ItemCalc(m, subPrice, detailAmount));
+                if (price == null) unpriced++; else priced++;
             }
             if (groupAmount.signum() <= 0) {
-                // 无有效单价则不生成分摊明细（金额为 0 无核算意义）
+                log.warn("[工资核算] 工单 {} 跳过：全部 {} 条子项无有效单价（工序={}，priced={}，unpriced={}）",
+                        order.getTaskNo(), items.size(), order.getProcessName(), priced, unpriced);
                 continue;
             }
 
             List<WageStaffVO> members = memberCache.computeIfAbsent(order.getGroupId(),
                     staffExtMapper::selectActiveMembers);
             if (members.isEmpty()) {
+                log.warn("[工资核算] 工单 {} 跳过：加工组 {} 无在职成员", order.getTaskNo(), order.getGroupId());
                 continue;
             }
             BigDecimal coefSum = BigDecimal.ZERO;
@@ -124,6 +130,7 @@ public class WagePayStatService {
                 }
             }
             if (coefSum.signum() <= 0) {
+                log.warn("[工资核算] 工单 {} 跳过：加工组 {} 成员系数和为 0", order.getTaskNo(), order.getGroupId());
                 continue;
             }
             WageGroup group = groupCache.computeIfAbsent(order.getGroupId(), groupMapper::selectById);

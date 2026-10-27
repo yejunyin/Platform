@@ -28,7 +28,7 @@ public class WageMaterial implements Serializable {
     @Schema(description = "投料单号")
     private String feedNo;
 
-    @Schema(description = "业务状态（随任务单联动）：计划/开工/完工")
+    @Schema(description = "业务状态（随本地任务单联动，不同步自金蝶）：计划/开工/完工")
     private String bizStatus;
 
     @Schema(description = "物料代码")

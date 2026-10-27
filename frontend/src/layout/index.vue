@@ -97,13 +97,13 @@
             <el-icon><Money /></el-icon>
             <span>工资核算</span>
           </template>
-          <el-menu-item index="/wage/orders">
-            <el-icon><Tickets /></el-icon>
-            <template #title>生产任务单</template>
-          </el-menu-item>
           <el-menu-item index="/wage/materials">
             <el-icon><Box /></el-icon>
             <template #title>用料清单查询</template>
+          </el-menu-item>
+          <el-menu-item index="/wage/orders">
+            <el-icon><Tickets /></el-icon>
+            <template #title>生产任务单</template>
           </el-menu-item>
           <el-menu-item index="/wage/paystat">
             <el-icon><DocumentChecked /></el-icon>

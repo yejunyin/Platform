@@ -55,6 +55,8 @@ public class WageOrderService {
     private KingdeeWageService kingdeeWageService;
     @Resource
     private WagePriceService priceService;
+    @Resource
+    private WagePayStatService payStatService;
 
     // ------------------------------------------------------------
     // 查询
@@ -97,31 +99,111 @@ public class WageOrderService {
     // MES 同步
     // ------------------------------------------------------------
 
+    /**
+     * 从金蝶同步生产任务单：先查 PRD_PPBOM 子项含"丝印/移印"的工单 → 再查 PRD_MO 工单头 → upsert。
+     * <p>过滤逻辑：只有 BOM 子项物料名称包含"丝印"或"移印"的工单才进工资核算。</p>
+     */
     @Transactional(rollbackFor = Exception.class)
     public int syncFromMes() {
-        List<MesProductOrder> mesList = mesOrderMapper.selectWageSyncList();
-        int added = 0;
-        LocalDateTime now = LocalDateTime.now();
-        for (MesProductOrder mes : mesList) {
-            String taskNo = mes.getPcode();
-            if (taskNo == null || taskNo.isEmpty() || orderMapper.selectByTaskNo(taskNo) != null) {
-                continue;
-            }
-            WageOrder o = new WageOrder();
-            o.setTaskNo(taskNo);
-            o.setProductName(mes.getMaterialname());
-            o.setMaterialCode(mes.getMaterialid());
-            o.setSubMaterialName(mes.getMaterialname());
-            o.setProductQty(mes.getTotal() == null ? null : new BigDecimal(mes.getTotal()));
-            o.setWorkshop(mes.getDept());
-            o.setConfirmStatus("未确认");
-            o.setBizStatus("计划");
-            o.setSettleStatus("待结算");
-            o.setSyncTime(now);
-            orderMapper.insert(o);
-            added++;
+        // Step 1: 从 PRD_PPBOM 查近 12 个月含"丝印/移印"子项的工单
+        List<String> keywords = List.of("丝印", "移印");
+        List<WagePpbomRowVO> ppbomRows = kingdeeWageService.queryPpbomByKeyword(keywords, null, 5000);
+        if (ppbomRows.isEmpty()) {
+            log.warn("[工资核算] 金蝶 PRD_PPBOM 同步：近 12 个月无丝印/移印子项");
+            return 0;
         }
-        log.info("[工资核算] MES 任务单同步完成，新增 {} 张", added);
+        // 提取 distinct 工单号
+        Set<String> taskNos = new LinkedHashSet<>();
+        for (WagePpbomRowVO r : ppbomRows) {
+            if (r.getMoBillNo() != null && !r.getMoBillNo().isEmpty()) {
+                taskNos.add(r.getMoBillNo());
+            }
+        }
+        log.info("[工资核算] PRD_PPBOM 命中 {} 张含丝印/移印子项的工单", taskNos.size());
+
+        // Step 2: 拿工单号去 PRD_MO 查工单头
+        List<WageMoRowVO> kdOrders = kingdeeWageService.queryMoByBillNos(new ArrayList<>(taskNos));
+        if (kdOrders.isEmpty()) {
+            log.warn("[工资核算] PRD_MO 查询返回空");
+            return 0;
+        }
+
+        // Step 3: upsert 到 wage_order
+        int added = 0;
+        int updated = 0;
+        LocalDateTime now = LocalDateTime.now();
+        for (WageMoRowVO kd : kdOrders) {
+            String taskNo = kd.getMoBillNo();
+            if (taskNo == null || taskNo.isEmpty()) continue;
+
+            WageOrder existing = orderMapper.selectByTaskNo(taskNo);
+            if (existing != null) {
+                existing.setProductName(kd.getProductName());
+                existing.setMaterialCode(kd.getProductCode());
+                existing.setProductQty(kd.getQty());
+                existing.setStockInQty(kd.getYieldQty());
+                existing.setWorkshop(kd.getWorkshop());
+                // 开工/完工时间是本地业务字段（开工提交、完工录入填的），不从金蝶覆盖
+                existing.setSyncTime(now);
+                orderMapper.updateById(existing);
+                updated++;
+            } else {
+                WageOrder o = new WageOrder();
+                o.setTaskNo(taskNo);
+                o.setProductName(kd.getProductName());
+                o.setMaterialCode(kd.getProductCode());
+                o.setProductQty(kd.getQty());
+                o.setStockInQty(kd.getYieldQty());
+                o.setWorkshop(kd.getWorkshop());
+                // startTime / finishTime 为 null，等本地开工/完工时填充
+                o.setBizStatus("计划");
+                o.setConfirmStatus("未确认");
+                o.setSettleStatus("待结算");
+                o.setSyncTime(now);
+                orderMapper.insert(o);
+                added++;
+            }
+        }
+        log.info("[工资核算] 金蝶工单头同步完成：新增 {} 张，更新 {} 张", added, updated);
+
+        // Step 4: 把命中的丝印/移印子项也 upsert 到 wage_material
+        int matAdded = 0;
+        int matUpdated = 0;
+        for (WagePpbomRowVO pp : ppbomRows) {
+            String taskNo = pp.getMoBillNo();
+            String matCode = pp.getMaterialCode();
+            if (taskNo == null || matCode == null) continue;
+
+            if (materialMapper.countByTaskAndMaterial(taskNo, matCode) > 0) {
+                // 已存在 → 更新数量/名称（金蝶可能有变更）
+                WageMaterial exist = materialMapper.selectOne(
+                        new LambdaQueryWrapper<WageMaterial>()
+                                .eq(WageMaterial::getTaskNo, taskNo)
+                                .eq(WageMaterial::getMaterialCode, matCode)
+                                .eq(WageMaterial::getDeleted, 0));
+                if (exist != null) {
+                    exist.setMaterialName(pp.getMaterialName());
+                    exist.setUnit(pp.getUnitName());
+                    exist.setQty(pp.getNeedQty());
+                    exist.setFeedNo(pp.getPpbomBillNo());
+                    exist.setUpdateTime(now);
+                    materialMapper.updateById(exist);
+                    matUpdated++;
+                }
+            } else {
+                WageMaterial m = new WageMaterial();
+                m.setTaskNo(taskNo);
+                m.setFeedNo(pp.getPpbomBillNo());
+                m.setMaterialCode(matCode);
+                m.setMaterialName(pp.getMaterialName());
+                m.setUnit(pp.getUnitName());
+                m.setQty(pp.getNeedQty());
+                m.setBizStatus("计划");
+                materialMapper.insert(m);
+                matAdded++;
+            }
+        }
+        log.info("[工资核算] 金蝶用料子项同步完成：新增 {} 条，更新 {} 条（丝印/移印子项）", matAdded, matUpdated);
         return added;
     }
 
@@ -166,6 +248,15 @@ public class WageOrderService {
 
         // 金蝶《生产用料清单》下发（失败不阻断开工，后续可在该单再次触发/人工补录）
         pushMaterialsFromKingdee(order);
+
+        // 自动触发计件明细重算（全量删旧重建，确保新工单的用料能进计件复核）
+        try {
+            String operator = req.getConfirmerName() == null ? req.getConfirmerNo() : req.getConfirmerName();
+            int n = payStatService.recalc(operator == null ? "开工自动" : operator);
+            log.info("[工资核算] 开工自动重算计件明细：生成 {} 条（工单号 {}）", n, order.getTaskNo());
+        } catch (Exception e) {
+            log.warn("[工资核算] 开工自动重算计件明细失败（不阻断开工）：{}", e.getMessage());
+        }
     }
 
     private void pushMaterialsFromKingdee(WageOrder order) {
@@ -227,6 +318,14 @@ public class WageOrderService {
         orderMapper.updateById(order);
 
         materialMapper.updateBizStatusByTaskNo(order.getTaskNo(), "完工");
+
+        // 完工时也触发计件明细重算（状态变更后可能影响分摊基数）
+        try {
+            int n = payStatService.recalc(req.getFinishUser() == null ? "完工自动" : req.getFinishUser());
+            log.info("[工资核算] 完工自动重算计件明细：生成 {} 条（工单号 {}）", n, order.getTaskNo());
+        } catch (Exception e) {
+            log.warn("[工资核算] 完工自动重算计件明细失败（不阻断完工）：{}", e.getMessage());
+        }
     }
 
     // ------------------------------------------------------------
@@ -316,7 +415,8 @@ public class WageOrderService {
      * 根据本地 wage_material 里的 task_no → 调金蝶 PRD_MO 查生产订单 → 同步到 wage_order
      * <p>场景：用户先在"金蝶标准接口查询"Tab 保存用料清单到本地 wage_material，
      * 进入"生产任务单"页签时自动补齐对应的 wage_order 头信息。</p>
-     * <p>幂等 + 覆盖：已存在的 task_no 会 UPDATE 金蝶字段，缺失的 INSERT。</p>
+     * <p>幂等 + 覆盖：已存在的 task_no 会 UPDATE 金蝶字段（bizStatus/confirmStatus/settleStatus 等本地业务字段一律保留，不同步自金蝶），
+     * 缺失的 INSERT 时 bizStatus 默认「计划」。</p>
      *
      * @return 新增条数
      */
@@ -348,22 +448,22 @@ public class WageOrderService {
         // 3) 逐行 upsert（已存在 UPDATE，不存在 INSERT）
         int added = 0;
         int updated = 0;
+        LocalDateTime now = LocalDateTime.now();
         for (WageMoRowVO kd : kdOrders) {
             String taskNo = kd.getMoBillNo();
             if (taskNo == null || taskNo.isEmpty()) continue;
             WageOrder existing = orderMapper.selectByTaskNo(taskNo);
-            String bizStatus = mapMoStatusToBiz(kd.getStatus());
             if (existing != null) {
-                // UPDATE：只更新从金蝶能拿到的字段（保留 confirmStatus/settleStatus/gid 等业务字段）
+                // UPDATE：只更新从金蝶能拿到的字段
+                // 注意：startTime/finishTime 是本地业务字段（开工提交/完工录入时用 now() 填入），
+                //       金蝶的 FPlanStartDate/FPlanFinishDate 是计划时间，不覆盖
+                //       bizStatus/confirmStatus/settleStatus/gid 等也一律保留本地值
                 existing.setProductName(kd.getProductName());
                 existing.setMaterialCode(kd.getProductCode());
                 existing.setProductQty(kd.getQty());
                 existing.setStockInQty(kd.getYieldQty());
                 existing.setWorkshop(kd.getWorkshop());
-                existing.setStartTime(parseDateTime(kd.getPlanStartTime()));
-                existing.setFinishTime(parseDateTime(kd.getPlanFinishTime()));
-                existing.setBizStatus(bizStatus);
-                existing.setSyncTime(LocalDateTime.now());
+                existing.setSyncTime(now);
                 orderMapper.updateById(existing);
                 updated++;
             } else {
@@ -374,12 +474,11 @@ public class WageOrderService {
                 o.setProductQty(kd.getQty());
                 o.setStockInQty(kd.getYieldQty());
                 o.setWorkshop(kd.getWorkshop());
-                o.setStartTime(parseDateTime(kd.getPlanStartTime()));
-                o.setFinishTime(parseDateTime(kd.getPlanFinishTime()));
-                o.setBizStatus(bizStatus);
+                // startTime / finishTime 为 null，等本地 start() / done() 时用 now() 填入真实时间
+                o.setBizStatus("计划");
                 o.setConfirmStatus("未确认");
                 o.setSettleStatus("待结算");
-                o.setSyncTime(LocalDateTime.now());
+                o.setSyncTime(now);
                 orderMapper.insert(o);
                 added++;
             }
@@ -387,22 +486,6 @@ public class WageOrderService {
         log.info("[工资核算] syncFromMaterials：wage_material {} 个 task_no，PRD_MO 返回 {} 个，新增 {} / 更新 {}",
                 materialTaskNos.size(), kdOrders.size(), added, updated);
         return added;
-    }
-
-    /**
-     * 金蝶 PRD_MO.FStatus → wage_order.bizStatus
-     * 1计划 2计划确认 → 计划；3下达 4开工 → 开工；5完工 6结案 7结算 → 完工；其余 → 计划
-     */
-    private String mapMoStatusToBiz(String fStatus) {
-        if (fStatus == null) return "计划";
-        switch (fStatus.trim()) {
-            case "3":
-            case "4": return "开工";
-            case "5":
-            case "6":
-            case "7": return "完工";
-            default:  return "计划";
-        }
     }
 
     /** 金蝶返回的日期字符串 → LocalDateTime

@@ -4,7 +4,7 @@
       <div class="industrial-panel__title">
         <span class="industrial-panel__bar" />
         生产任务单
-        <span class="crud-tip">数据源 MES 生产订单；开工提交后金蝶《生产用料清单》自动下发到下方明细</span>
+        <span class="crud-tip">数据源：金蝶《生产用料清单》(PRD_PPBOM) 取 work 单号 → 查询 PRD_MO 工单头；列表仅显示在下方用料清单有对应 work 单号的任务单</span>
       </div>
 
       <div class="toolbar">
@@ -26,7 +26,6 @@
           <el-option label="已结算" value="已结算" />
         </el-select>
         <el-button class="btn-primary" @click="reload">查询</el-button>
-        <el-button class="btn-primary" :loading="syncing" @click="onSync">同步任务单</el-button>
       </div>
 
       <el-table
@@ -171,7 +170,6 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import {
   pageOrders,
-  syncOrders,
   syncOrdersFromMaterials,
   startOrder,
   doneOrder,
@@ -186,20 +184,23 @@ import type { WageGroup, WageOrder, WageMaterial } from '@/api/wage/types'
 const userStore = useUserStore()
 
 onMounted(async () => {
-  loadGroups()
-  loadWorkshopOptions()
-  // 进入页面时：从本地用料清单补金蝶任务单 → 自动刷新
+  // 先从本地用料清单 (wage_material) 里的 task_no → 调金蝶 PRD_MO 同步工单头到 wage_order
+  // 确保任务单列表始终从最新的用料清单派生
   try {
-    const { data } = await syncOrdersFromMaterials()
-    if ((data?.added ?? 0) > 0) {
-      ElMessage.info(`从用料清单补齐任务单：新增 ${data?.added} 张`)
-    }
-  } catch { /* 金蝶不可用时静默，不阻塞页面 */ }
-  loadOrders()
+    await syncOrdersFromMaterials()
+  } catch (e) {
+    // 同步失败不阻断页面加载，列表会在已有的 wage_order 数据上展示
+    console.warn('syncOrdersFromMaterials failed:', e)
+  }
+  // 三个本地查询并行，秒出
+  await Promise.all([
+    loadGroups(),
+    loadWorkshopOptions(),
+    loadOrders(),
+  ])
 })
 
 const loading = ref(false)
-const syncing = ref(false)
 const acting = ref(false)
 const matLoading = ref(false)
 const rows = ref<WageOrder[]>([])
@@ -274,18 +275,6 @@ async function selectTask(row: WageOrder) {
     materials.value = data || []
   } finally {
     matLoading.value = false
-  }
-}
-
-async function onSync() {
-  syncing.value = true
-  try {
-    const { data } = await syncOrders()
-    ElMessage.success(`同步完成，新增 ${data?.added ?? 0} 张任务单`)
-    loadWorkshopOptions()
-    reload()
-  } finally {
-    syncing.value = false
   }
 }
 

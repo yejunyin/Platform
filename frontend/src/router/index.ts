@@ -113,20 +113,20 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'wage',
         name: 'WageLayout',
-        redirect: '/wage/orders',
+        redirect: '/wage/materials',
         meta: { title: '工资核算', icon: 'Money' },
         children: [
-          {
-            path: 'orders',
-            name: 'WageOrders',
-            component: () => import('@/views/wage/Orders.vue'),
-            meta: { title: '生产任务单', icon: 'Tickets' },
-          },
           {
             path: 'materials',
             name: 'WageMaterials',
             component: () => import('@/views/wage/Materials.vue'),
             meta: { title: '用料清单查询', icon: 'Box' },
+          },
+          {
+            path: 'orders',
+            name: 'WageOrders',
+            component: () => import('@/views/wage/Orders.vue'),
+            meta: { title: '生产任务单', icon: 'Tickets' },
           },
           {
             path: 'paystat',

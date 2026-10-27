@@ -259,23 +259,52 @@
   min-height: 140px;
 }
 :root .el-table__empty-text { color: v.$text-secondary; }
-// 固定列（sticky）：与普通行/表头同底色，避免固定列残留 EP 默认白底
+// 固定列（sticky）修复：完全不透明背景 + 高 z-index + 边界分割线
+// Element Plus fixed 列是独立的 sticky 渲染层，td 必须用完全不透明背景
+// 才能彻底遮挡横向滚动过来的中间行内容，否则会出现文字穿透
+// ---------- z-index：fixed 列必须高于普通列，表头更高于 body ----------
+:root .el-table th.el-table-fixed-column--left,
+:root .el-table td.el-table-fixed-column--left  { z-index: 4 !important; }
+:root .el-table th.el-table-fixed-column--right,
+:root .el-table td.el-table-fixed-column--right { z-index: 5 !important; }
+:root .el-table .el-table__header-wrapper th.el-table-fixed-column--left,
+:root .el-table .el-table__header-wrapper th.el-table-fixed-column--right { z-index: 6 !important; }
+
+// ---------- 表头 fixed 列 ----------
 :root .el-table th.el-table-fixed-column--left,
 :root .el-table th.el-table-fixed-column--right {
   background: linear-gradient(180deg, #121e2e 0%, #0c1522 100%) !important;
+  background-clip: padding-box !important;
 }
+
+// ---------- body fixed 列（行背景必须不透明 + background-clip 才能遮挡穿透） ----------
 :root .el-table td.el-table-fixed-column--left,
 :root .el-table td.el-table-fixed-column--right {
-  background: v.$panel-bg;
+  background-color: #{v.$panel-bg} !important;
+  background-clip: padding-box !important;
 }
+
+// ---------- 斑马纹行 fixed 列 ----------
 :root .el-table--striped .el-table__body tr.el-table__row--striped td.el-table-fixed-column--left,
 :root .el-table--striped .el-table__body tr.el-table__row--striped td.el-table-fixed-column--right {
-  background: rgba(255,255,255,0.015);
+  background-color: #{v.$panel-bg-hover} !important;
 }
+
+// ---------- 悬停行 fixed 列 ----------
+:root .el-table__body tr:hover > td.el-table-fixed-column--left,
+:root .el-table__body tr:hover > td.el-table-fixed-column--right {
+  background-color: #{v.$panel-bg-hover} !important;
+}
+
+// ---------- current-row 选中行 fixed 列 ----------
 :root .el-table__body tr.current-row > td.el-table-fixed-column--left,
 :root .el-table__body tr.current-row > td.el-table-fixed-column--right {
-  background: rgba(26,179,255,0.10) !important;
+  background-color: rgba(26,179,255,0.10) !important;
 }
+
+// ---------- 固定列边界细分割线 ----------
+:root .el-table td.el-table-fixed-column--left  { border-right: 1px solid rgba(255,255,255,0.08) !important; }
+:root .el-table td.el-table-fixed-column--right { border-left:  1px solid rgba(255,255,255,0.08) !important; }
 
 // ============================================================
 //  Pagination

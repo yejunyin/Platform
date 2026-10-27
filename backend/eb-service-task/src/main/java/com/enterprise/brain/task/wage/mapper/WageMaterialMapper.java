@@ -17,6 +17,7 @@ public interface WageMaterialMapper extends BaseMapper<WageMaterial> {
      */
     @Select("<script>" +
             "SELECT * FROM wage_material WHERE deleted = 0 " +
+            "  AND (material_name LIKE '%丝印%' OR material_name LIKE '%移印%') " +
             "<if test='taskNo != null and taskNo != \"\"'> AND task_no = #{taskNo} </if>" +
             "<if test='bizStatus != null and bizStatus != \"\"'> AND biz_status = #{bizStatus} </if>" +
             "<if test='keyword != null and keyword != \"\"'>" +

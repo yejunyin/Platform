@@ -14,12 +14,16 @@ public interface WageOrderMapper extends BaseMapper<WageOrder> {
 
     /**
      * 任务单分页列表（左联小组带出名称）；筛选在 SQL 内完成，分页由 service 内存切片
+     * <p>数据源逻辑：生产任务单 = 本地 wage_material（用料清单）里的 task_no（work 单号）→ 查 wage_order 工单头
+     * <p>丝印/移印过滤已在上游同步阶段（syncFromMes / savePpbomRows）完成，查询阶段只保留 EXISTS wage_material 关联
      */
     @Select("<script>" +
             "SELECT o.*, o.sub_material_code AS materialCode, g.group_name AS groupName " +
             "FROM wage_order o " +
             "LEFT JOIN wage_group g ON g.id = o.group_id AND g.deleted = 0 " +
             "WHERE o.deleted = 0 " +
+            "  AND EXISTS (SELECT 1 FROM wage_material m " +
+            "              WHERE m.task_no = o.task_no AND m.deleted = 0) " +
             "<if test='workshop != null and workshop != \"\"'> AND o.workshop = #{workshop} </if>" +
             "<if test='groupId != null'> AND o.group_id = #{groupId} </if>" +
             "<if test='settleStatus != null and settleStatus != \"\"'> AND o.settle_status = #{settleStatus} </if>" +

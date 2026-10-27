@@ -23,7 +23,7 @@ import java.util.List;
 public class KingdeeWageService {
 
     /** 默认查询近 N 个月创建的用料清单（避免无关键词时拉全量） */
-    private static final int DEFAULT_LOOKBACK_MONTHS = 3;
+    private static final int DEFAULT_LOOKBACK_MONTHS = 1;
     /** 无关键词时的默认查询上限 */
     private static final int DEFAULT_LIMIT = 2000;
 
@@ -94,8 +94,55 @@ public class KingdeeWageService {
     }
 
     /**
+     * 查询金蝶《生产订单》(PRD_MO) —— 近 N 个月创建的全部订单
+     *
+     * @param monthsLookback 回溯月数，默认 12
+     * @param limit          最大返回条数，默认 5000
+     */
+    public List<WageMoRowVO> queryMoRecent(Integer monthsLookback, Integer limit) {
+        int months = (monthsLookback == null || monthsLookback <= 0) ? 1 : monthsLookback;
+        int max = (limit == null || limit <= 0) ? 5000 : limit;
+
+        String startDate = LocalDate.now().minusMonths(months)
+                .format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+
+        // PRD_MO 没有 FCreateDate 标准字段，但 FPlanStartDate / FBillDate 常用；
+        // 保险起见用 FBillDate >= 回溯日期
+        String filter = "FBillDate >= '" + startDate + "'";
+
+        log.info("[工资核算-金蝶] queryMoRecent filter={} limit={}", filter, max);
+
+        String fieldKeys = "FBillNo,FMaterialID.fnumber,FMaterialID.fname," +
+                "FQty,FYieldQty,FStatus,FWorkShopID.fname,FPlanStartDate,FPlanFinishDate,FBillDate";
+
+        List<JsonNode> rows = kingdeeService.executeBillQuery("PRD_MO", fieldKeys, filter,
+                "FBillNo desc", max);
+
+        List<WageMoRowVO> result = new ArrayList<>();
+        for (JsonNode row : rows) {
+            if (!row.isArray() || row.size() < 9) continue;
+            WageMoRowVO vo = new WageMoRowVO();
+            vo.setMoBillNo(kingdeeService.textOf(row.get(0)));
+            vo.setProductCode(kingdeeService.textOf(row.get(1)));
+            vo.setProductName(kingdeeService.textOf(row.get(2)));
+            vo.setQty(kingdeeService.decimalOf(row.get(3)));
+            vo.setYieldQty(kingdeeService.decimalOf(row.get(4)));
+            vo.setStatus(kingdeeService.textOf(row.get(5)));
+            vo.setWorkshop(kingdeeService.textOf(row.get(6)));
+            vo.setPlanStartTime(kingdeeService.textOf(row.get(7)));
+            vo.setPlanFinishTime(kingdeeService.textOf(row.get(8)));
+            result.add(vo);
+        }
+        log.info("[工资核算-金蝶] queryMoRecent 返回 {} 张生产订单", result.size());
+        return result;
+    }
+
+    /**
      * 按生产订单号批量查询金蝶《生产订单》(PRD_MO) 单据信息
      * <p>用用料清单里的 task_no（FMOBillNO）作为 PRD_MO.FBillNo 去查订单头。</p>
+     *
+     * <p>注：不查询 FPlanStartDate/FPlanFinishDate（金蝶计划时间），
+     * 工资核算模块的 startTime/finishTime 由本地 start()/done() 方法用 now() 记录真实开工/完工时间。</p>
      *
      * @param moBillNos 生产订单号（PRD_MO.FBillNo）
      * @return PRD_MO 订单行（去重后，每个单号一条）
@@ -103,10 +150,10 @@ public class KingdeeWageService {
     public List<WageMoRowVO> queryMoByBillNos(List<String> moBillNos) {
         if (moBillNos == null || moBillNos.isEmpty()) return new ArrayList<>();
 
-        // 用户确认字段：单号 / 产品编码 / 产品名称 / 产品数量 / 完工入库数 /
-        // 状态 / 生产车间 / 开工时间(FPlanStartDate) / 完工时间(FPlanFinishDate)
+        // 只查需要的字段：单号 / 产品编码 / 产品名称 / 产品数量 / 完工入库数 / 状态 / 生产车间
+        // 不查计划开工/完工时间（FPlanStartDate/FPlanFinishDate），本地 startTime/finishTime 由 start()/done() 记录
         String fieldKeys = "FBillNo,FMaterialID.fnumber,FMaterialID.fname," +
-                "FQty,FYieldQty,FStatus,FWorkShopID.fname,FPlanStartDate,FPlanFinishDate";
+                "FQty,FYieldQty,FStatus,FWorkShopID.fname";
 
         // 分批查询避免 FilterString 过长：每批最多 500 个单号
         int batchSize = 500;
@@ -129,15 +176,14 @@ public class KingdeeWageService {
             int debugN = Math.min(2, rows.size());
             for (int i = 0; i < debugN; i++) {
                 JsonNode r = rows.get(i);
-                if (!r.isArray() || r.size() < 9) continue;
-                log.info("[工资核算-金蝶] PRD_MO row[{}] FBillNo={} FQty={} FYieldQty={} FStatus={} FWorkShopID.fname={} FPlanStartDate={} FPlanFinishDate={}",
+                if (!r.isArray() || r.size() < 7) continue;
+                log.info("[工资核算-金蝶] PRD_MO row[{}] FBillNo={} FQty={} FYieldQty={} FStatus={} FWorkShopID.fname={}",
                         i, kingdeeService.textOf(r.get(0)), kingdeeService.decimalOf(r.get(3)),
                         kingdeeService.decimalOf(r.get(4)), kingdeeService.textOf(r.get(5)),
-                        kingdeeService.textOf(r.get(6)), kingdeeService.textOf(r.get(7)),
-                        kingdeeService.textOf(r.get(8)));
+                        kingdeeService.textOf(r.get(6)));
             }
             for (JsonNode row : rows) {
-                if (!row.isArray() || row.size() < 9) continue;
+                if (!row.isArray() || row.size() < 7) continue;
                 String billNo = kingdeeService.textOf(row.get(0));
                 if (billNo == null || seen.contains(billNo)) continue;
                 seen.add(billNo);
@@ -149,8 +195,6 @@ public class KingdeeWageService {
                 vo.setYieldQty(kingdeeService.decimalOf(row.get(4)));
                 vo.setStatus(kingdeeService.textOf(row.get(5)));
                 vo.setWorkshop(kingdeeService.textOf(row.get(6)));
-                vo.setPlanStartTime(kingdeeService.textOf(row.get(7)));  // FPlanStartDate
-                vo.setPlanFinishTime(kingdeeService.textOf(row.get(8))); // FPlanFinishDate
                 result.add(vo);
             }
         }

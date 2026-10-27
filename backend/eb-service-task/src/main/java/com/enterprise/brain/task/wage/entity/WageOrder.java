@@ -57,7 +57,7 @@ public class WageOrder implements Serializable {
     @Schema(description = "开工确认状态：未确认/已确认")
     private String confirmStatus;
 
-    @Schema(description = "业务状态：计划/开工/完工")
+    @Schema(description = "业务状态（本地维护，不同步自金蝶/MES）：计划/开工/完工")
     private String bizStatus;
 
     @Schema(description = "开工时间")

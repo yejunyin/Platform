@@ -50,6 +50,9 @@ public class WmsPickTaskService {
      * 创建定时领料任务（默认 pending 状态，需显式 start 才会开始跑）
      */
     public WmsPickTask create(WmsPickTaskCreateRequest req) {
+        if (!scheduler.isEnabled()) {
+            throw new BusinessException("定时领料任务已关闭（pick-task.enabled=false），请先在 application.yml 开启");
+        }
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         WmsPickTask created = tx.execute(status -> {
             LocalDateTime now = LocalDateTime.now();
@@ -129,6 +132,9 @@ public class WmsPickTaskService {
     }
 
     public WmsPickTask start(Long taskId) {
+        if (!scheduler.isEnabled()) {
+            throw new BusinessException("定时领料任务已关闭（pick-task.enabled=false），请先在 application.yml 开启");
+        }
         WmsPickTask task = taskMapper.selectById(taskId);
         if (task == null) throw new BusinessException("任务不存在");
         if ("completed".equals(task.getStatus()) || "cancelled".equals(task.getStatus())) {
@@ -146,6 +152,9 @@ public class WmsPickTaskService {
     }
 
     public WmsPickTask resume(Long taskId) {
+        if (!scheduler.isEnabled()) {
+            throw new BusinessException("定时领料任务已关闭（pick-task.enabled=false），请先在 application.yml 开启");
+        }
         WmsPickTask task = taskMapper.selectById(taskId);
         if (task == null) throw new BusinessException("任务不存在");
         scheduler.resumeTask(taskId);

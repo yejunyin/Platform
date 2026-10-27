@@ -14,6 +14,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -51,6 +52,9 @@ public class PickTaskScheduler {
     @Resource
     private PlatformTransactionManager transactionManager;
 
+    @Value("${pick-task.enabled:false}")
+    private boolean enabled;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /** 调度线程池（核心线程数 = 4，足够并发多个任务） */
@@ -64,6 +68,10 @@ public class PickTaskScheduler {
 
     @PostConstruct
     public void init() {
+        if (!enabled) {
+            log.warn("[定时领料] pick-task.enabled=false，调度器已禁用，不恢复 running 任务");
+            return;
+        }
         scheduler = new ScheduledThreadPoolExecutor(4, r -> {
             Thread t = new Thread(r, "PickTaskScheduler");
             t.setDaemon(true);
@@ -89,6 +97,14 @@ public class PickTaskScheduler {
      * 安排下次执行（首次 delay=0 立即执行；后续按 intervalSec 延迟）
      */
     public void scheduleNext(WmsPickTask task, long delaySec) {
+        if (!enabled) {
+            log.warn("[定时领料] pick-task.enabled=false，忽略 schedule 请求 taskId={}", task.getId());
+            return;
+        }
+        if (scheduler == null) {
+            log.warn("[定时领料] scheduler 未初始化（可能 enabled=false），忽略 schedule taskId={}", task.getId());
+            return;
+        }
         long taskId = task.getId();
         AtomicBoolean running = runningFlags.computeIfAbsent(taskId, k -> new AtomicBoolean(true));
         if (!running.get()) {
@@ -413,5 +429,10 @@ public class PickTaskScheduler {
         uw.eq("id", taskId).set("status", "cancelled").set("update_time", LocalDateTime.now());
         taskMapper.update(null, uw);
         log.info("[定时领料] taskId={} 已取消", taskId);
+    }
+
+    /** 定时领料开关；pick-task.enabled=false 时所有调度行为被禁用 */
+    public boolean isEnabled() {
+        return enabled;
     }
 }

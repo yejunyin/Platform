@@ -82,21 +82,41 @@ public class WagePriceService {
 
     /**
      * 按 子物料代码 + 工序 匹配当前有效单价（启用，生效/失效日期覆盖今天；多条取最新生效）
+     * 匹配策略：先精确匹配；失败再用 LIKE 前缀匹配（工单工序="丝印" 能匹配单价工序="丝印01"）
      * @return 单价；无匹配返回 null
      */
     public WagePrice matchPrice(String materialCode, String processName) {
         if (materialCode == null || materialCode.isEmpty() || processName == null || processName.isEmpty()) {
             return null;
         }
+        String code = materialCode.trim();
+        String proc = processName.trim();
         java.time.LocalDate today = java.time.LocalDate.now();
-        List<WagePrice> list = priceMapper.selectList(new LambdaQueryWrapper<WagePrice>()
-                .eq(WagePrice::getMaterialCode, materialCode.trim())
-                .eq(WagePrice::getProcessName, processName.trim())
+
+        // 关卡1：精确匹配
+        LambdaQueryWrapper<WagePrice> exact = new LambdaQueryWrapper<WagePrice>()
+                .eq(WagePrice::getMaterialCode, code)
+                .eq(WagePrice::getProcessName, proc)
                 .eq(WagePrice::getStatus, "启用")
                 .and(w -> w.isNull(WagePrice::getEffectiveDate).or().le(WagePrice::getEffectiveDate, today))
                 .and(w -> w.isNull(WagePrice::getExpiryDate).or().ge(WagePrice::getExpiryDate, today))
                 .orderByDesc(WagePrice::getEffectiveDate)
-                .orderByDesc(WagePrice::getId));
+                .orderByDesc(WagePrice::getId);
+        List<WagePrice> list = priceMapper.selectList(exact);
+        if (!list.isEmpty()) {
+            return list.get(0);
+        }
+
+        // 关卡2：前缀模糊匹配（单价表 process_name LIKE '丝印%' 匹配 工单 process_name='丝印'）
+        LambdaQueryWrapper<WagePrice> fuzzy = new LambdaQueryWrapper<WagePrice>()
+                .eq(WagePrice::getMaterialCode, code)
+                .likeRight(WagePrice::getProcessName, proc)
+                .eq(WagePrice::getStatus, "启用")
+                .and(w -> w.isNull(WagePrice::getEffectiveDate).or().le(WagePrice::getEffectiveDate, today))
+                .and(w -> w.isNull(WagePrice::getExpiryDate).or().ge(WagePrice::getExpiryDate, today))
+                .orderByDesc(WagePrice::getEffectiveDate)
+                .orderByDesc(WagePrice::getId);
+        list = priceMapper.selectList(fuzzy);
         return list.isEmpty() ? null : list.get(0);
     }
 }
