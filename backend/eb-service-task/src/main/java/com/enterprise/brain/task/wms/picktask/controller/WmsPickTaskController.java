@@ -35,7 +35,7 @@ public class WmsPickTaskController {
     @GetMapping("/ppbom/query")
     @Operation(summary = "按生产订单号查询金蝶生产用料清单")
     public Result<List<WmsPpbomRowVO>> queryPpbom(@RequestParam String productionNo) {
-        return Result.success(pickingService.queryPpbomByProductionNo(productionNo));
+        return Result.success(pickingService.queryPpbomByProductionNo(productionNo, true));
     }
 
     @PostMapping

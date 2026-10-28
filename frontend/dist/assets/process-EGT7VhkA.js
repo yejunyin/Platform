@@ -1,0 +1,1 @@
+import{s}from"./request-3Q85ks5R.js";const r="/wage/process";function o(e){return s.get(r,{params:{keyword:e}})}function n(e){return e.id?s.put(`${r}/${e.id}`,e):s.post(r,e)}function c(e){return s.delete(`${r}/${e}`)}export{c as d,o as l,n as s};

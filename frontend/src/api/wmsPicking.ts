@@ -18,6 +18,19 @@ export interface PpbomRow {
   planCode?: string
   /** 发料仓库（FPickStockId，基础资料属性，中文仓库名） */
   pickStock?: string
+
+  // ============ 本地累计数据（后端查询时填充） ============
+  /** 叫料已推送 WMS 数量（wms_picking_entry.pickedQty 汇总，status=sent） */
+  pushedQty?: number
+  /** 定时领料任务中该物料的发料总数量（wms_pick_task_entry.totalQty 汇总，排除 cancelled） */
+  pickTaskTotalQty?: number
+  /** 定时领料任务中该物料已发数量（wms_pick_task_entry.sentQty 汇总） */
+  pickTaskSentQty?: number
+  /** 剩余可领数量 = needQty - pushedQty - pickTaskTotalQty */
+  remainingQty?: number
+
+  /** 即时库存数量（金蝶 STK_Inventory，仓库 FStockId.FNumber='2010'） */
+  immediateStockQty?: number
 }
 
 /** 领料单头 */

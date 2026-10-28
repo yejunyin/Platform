@@ -3,6 +3,7 @@ package com.enterprise.brain.task.wms.picktask.scheduler;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.enterprise.brain.task.wms.dto.WmsPickingSendResponse;
+import com.enterprise.brain.task.wms.dto.WmsPpbomRowVO;
 import com.enterprise.brain.task.wms.picktask.entity.WmsPickTask;
 import com.enterprise.brain.task.wms.picktask.entity.WmsPickTaskEntry;
 import com.enterprise.brain.task.wms.picktask.entity.WmsPickTaskLog;
@@ -10,6 +11,7 @@ import com.enterprise.brain.task.wms.picktask.mapper.WmsPickTaskEntryMapper;
 import com.enterprise.brain.task.wms.picktask.mapper.WmsPickTaskLogMapper;
 import com.enterprise.brain.task.wms.picktask.mapper.WmsPickTaskMapper;
 import com.enterprise.brain.task.service.WmsService;
+import com.enterprise.brain.task.wms.service.WmsPickingService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
@@ -48,6 +50,9 @@ public class PickTaskScheduler {
 
     @Resource
     private WmsService wmsService;
+
+    @Resource
+    private WmsPickingService pickingService;
 
     @Resource
     private PlatformTransactionManager transactionManager;
@@ -156,7 +161,7 @@ public class PickTaskScheduler {
         List<WmsPickTaskEntry> entries = entryMapper.selectList(
                 new QueryWrapper<WmsPickTaskEntry>().eq("task_id", taskId));
 
-        // 检查是否所有明细都已发满
+        // 检查是否所有明细都已发满（内部检查）
         boolean allDone = true;
         for (WmsPickTaskEntry e : entries) {
             BigDecimal left = e.getTotalQty().subtract(safe(e.getSentQty()));
@@ -168,6 +173,14 @@ public class PickTaskScheduler {
         if (allDone) {
             completeTask(task, "所有明细发料已满");
             return;
+        }
+
+        // ============ 全局竞态防护：查叫料已推送 + 金蝶应发，限制本轮不超全局剩余 ============
+        // 一次查询同时拿到金蝶应发数量和本地累计（pushedQty + pickTaskSentQty 已填充）
+        List<WmsPpbomRowVO> ppbomList = pickingService.queryPpbomByProductionNo(task.getProductionNo(), false);
+        Map<String, WmsPpbomRowVO> ppbomMap = new HashMap<>();
+        for (WmsPpbomRowVO vo : ppbomList) {
+            ppbomMap.put(vo.getMaterialCode(), vo);
         }
 
         // 本轮 WMS 单号
@@ -196,11 +209,34 @@ public class PickTaskScheduler {
         for (WmsPickTaskEntry e : entries) {
             BigDecimal left = e.getTotalQty().subtract(safe(e.getSentQty()));
             if (left.compareTo(BigDecimal.ZERO) <= 0) {
-                // 已发满，本轮跳过
+                // 内部已发满，本轮跳过
                 roundQtyList.add(BigDecimal.ZERO);
                 continue;
             }
+
+            // 全局剩余防护：不能超过金蝶应发数量 - 叫料已推 - 定时任务承诺总量（预占）
+            BigDecimal globalLeft = null;
+            WmsPpbomRowVO vo = ppbomMap.get(e.getMaterialCode());
+            if (vo != null && vo.getNeedQty() != null) {
+                BigDecimal pushed = safe(vo.getPushedQty());
+                BigDecimal ptTotal = safe(vo.getPickTaskTotalQty());
+                BigDecimal totalOccupied = pushed.add(ptTotal);
+                globalLeft = vo.getNeedQty().subtract(totalOccupied);
+                if (globalLeft.compareTo(BigDecimal.ZERO) < 0) {
+                    globalLeft = BigDecimal.ZERO;
+                }
+            }
+
+            // 取三者最小：内部剩余、每箱数量、全局剩余
             BigDecimal roundQty = left.min(e.getPerBoxQty());
+            if (globalLeft != null) {
+                roundQty = roundQty.min(globalLeft);
+            }
+            if (roundQty.compareTo(BigDecimal.ZERO) <= 0) {
+                // 全局剩余已用完（可能被叫料超了），跳过本轮
+                roundQtyList.add(BigDecimal.ZERO);
+                continue;
+            }
             roundQtyList.add(roundQty);
 
             Map<String, Object> m = new LinkedHashMap<>();
@@ -215,6 +251,13 @@ public class PickTaskScheduler {
             wmsEntries.add(m);
         }
         data.put("Entries", wmsEntries);
+
+        // 全局剩余已用完，所有物料都被跳过 → 直接完成（可能被叫料抢光了额度）
+        if (wmsEntries.isEmpty()) {
+            log.warn("[定时领料] taskId={} 本轮所有物料全局剩余已用完，自动完成任务", taskId);
+            completeTask(task, "全局剩余已用完（可能被叫料/其他定时任务抢占），自动停止");
+            return;
+        }
 
         log.info("[定时领料] taskId={} round={} billNo={} 物料行数={}",
                 taskId, task.getCurrentRound() + 1, billNo, wmsEntries.size());

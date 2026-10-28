@@ -38,6 +38,14 @@
                 </span>
               </div>
               <div class="panel-header-right">
+                <el-switch
+                  v-model="showOnlySmartStock"
+                  size="small"
+                  active-text="仅智能料箱库·有库存"
+                  inactive-text="显示全部"
+                  inline-prompt
+                  style="margin-right:12px"
+                />
                 <el-input
                   v-model="ppbomKeyword"
                   placeholder="🔍 物料编码/名称检索"
@@ -56,6 +64,23 @@
                 <span class="mono">{{ row.needQty?.toFixed(4) ?? '—' }}</span>
               </template>
             </el-table-column>
+            <el-table-column label="叫料已推" width="110" align="right">
+              <template #default="{ row }">
+                <span class="mono text-pushed">{{ row.pushedQty?.toFixed(4) ?? '0.0000' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="已有定时承诺" width="120" align="right">
+              <template #default="{ row }">
+                <span class="mono text-picktask">{{ row.pickTaskTotalQty?.toFixed(4) ?? '0.0000' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="剩余可领" width="120" align="right">
+              <template #default="{ row }">
+                <span class="mono" :class="remainingClass(row)">
+                  {{ row.remainingQty?.toFixed(4) ?? row.needQty?.toFixed(4) ?? '—' }}
+                </span>
+              </template>
+            </el-table-column>
             <el-table-column label="单位" prop="unitName" width="80" />
             <el-table-column label="计划跟踪号" prop="planCode" width="160">
               <template #default="{ row }">
@@ -65,11 +90,17 @@
             <el-table-column label="发料仓库" prop="pickStock" width="140">
               <template #default="{ row }">{{ row.pickStock || '—' }}</template>
             </el-table-column>
+            <el-table-column label="即时库存" width="110" align="right">
+              <template #default="{ row }">
+                <span class="mono text-stock">{{ row.immediateStockQty?.toFixed(4) ?? '0.0000' }}</span>
+              </template>
+            </el-table-column>
             <el-table-column label="操作" width="140" fixed="right">
               <template #default="{ row }">
                 <el-button
                   v-if="!isAdded(row)"
                   type="primary" size="small" plain
+                  :disabled="Number(row.remainingQty ?? 0) <= 0"
                   @click="addToTask(row)"
                 >加入定时任务</el-button>
                 <el-tag v-else type="success" size="small">已加入</el-tag>
@@ -96,11 +127,23 @@
             <el-table-column label="应发数量" width="100" align="right">
               <template #default="{ row }"><span class="mono">{{ row.needQty?.toFixed(2) ?? '—' }}</span></template>
             </el-table-column>
+            <el-table-column label="叫料已推" width="100" align="right">
+              <template #default="{ row }"><span class="mono text-pushed">{{ row.pushedQty?.toFixed(2) ?? '0' }}</span></template>
+            </el-table-column>
+            <el-table-column label="已有定时承诺" width="110" align="right">
+              <template #default="{ row }"><span class="mono text-picktask">{{ row.pickTaskTotalQty?.toFixed(2) ?? '0' }}</span></template>
+            </el-table-column>
+            <el-table-column label="剩余可领" width="110" align="right">
+              <template #default="{ row }">
+                <span class="mono" :class="remainingClass(row)">{{ row.remainingQty?.toFixed(2) ?? row.needQty?.toFixed(2) ?? '—' }}</span>
+              </template>
+            </el-table-column>
             <el-table-column label="发料总数量" width="150" align="right">
               <template #default="{ row }">
                 <el-input-number
                   v-model="row._totalQty"
                   :min="0.01"
+                  :max="Number(row.remainingQty ?? row.needQty ?? 99999)"
                   :precision="2"
                   size="small"
                   controls-position="right"
@@ -133,6 +176,11 @@
             </el-table-column>
             <el-table-column label="发料仓库" prop="pickStock" width="140">
               <template #default="{ row }">{{ row.pickStock || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="即时库存" width="100" align="right">
+              <template #default="{ row }">
+                <span class="mono text-stock">{{ row.immediateStockQty?.toFixed(2) ?? '0.00' }}</span>
+              </template>
             </el-table-column>
             <el-table-column label="操作" width="80" fixed="right">
               <template #default="{ $index }">
@@ -345,6 +393,7 @@ const showResult = ref(false)
 const querying = ref(false)
 const ppbomRows = ref<PpbomRow[]>([])
 const ppbomKeyword = ref('')
+const showOnlySmartStock = ref(true)
 
 const filteredPpbomRows = computed(() => {
   const kw = ppbomKeyword.value.trim().toLowerCase()
@@ -354,6 +403,12 @@ const filteredPpbomRows = computed(() => {
           || (r.materialName ?? '').toLowerCase().includes(kw)
       )
     : [...ppbomRows.value]
+  if (showOnlySmartStock.value) {
+    list = list.filter(
+      r => (r.pickStock ?? '').includes('智能料箱')
+        && Number(r.immediateStockQty ?? 0) > 0
+    )
+  }
   // 按物料编码升序排序
   list.sort((a, b) => (a.materialCode ?? '').localeCompare(b.materialCode ?? ''))
   return list
@@ -391,7 +446,7 @@ function addToTask(row: PpbomRow) {
   if (isAdded(row)) return
   taskItems.value.push({
     ...row,
-    _totalQty: Number(row.needQty ?? 0),
+    _totalQty: Number(row.remainingQty ?? row.needQty ?? 0),
     _perBox: 1, // 默认单次 1
   })
 }
@@ -542,6 +597,14 @@ function statusTagType(s?: string): '' | 'success' | 'warning' | 'danger' | 'inf
   }
   return map[s ?? ''] || ''
 }
+
+/** 剩余可领数量的颜色 class */
+function remainingClass(row: PpbomRow) {
+  const rem = Number(row.remainingQty ?? row.needQty ?? 0)
+  if (rem <= 0) return 'text-danger'
+  if (rem < Number(row.needQty ?? 0)) return 'text-warning'
+  return ''
+}
 </script>
 
 <style lang="scss" scoped>
@@ -559,7 +622,11 @@ function statusTagType(s?: string): '' | 'success' | 'warning' | 'danger' | 'inf
 
 :deep(.mono) { font-family: Consolas, 'SF Mono', Menlo, monospace; }
 .text-success { color: #67c23a; }
-.text-danger { color: #f56c6c; }
+.text-danger { color: #f56c6c; font-weight: 600; }
+.text-warning { color: #e6a23c; }
+.text-pushed { color: #409eff; }
+.text-picktask { color: #9b59b6; }
+.text-stock { color: #67c23a; font-weight: 600; }
 
 .submit-bar {
   padding: 20px 16px; margin-top: 10px;

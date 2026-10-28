@@ -32,7 +32,7 @@ public class WmsPickingController {
             description = "调 PRD_PPBOM ExecuteBillQuery，FMOBillNO = productionNo")
     public Result<List<WmsPpbomRowVO>> queryPpbom(
             @RequestParam String productionNo) {
-        return Result.success(wmsPickingService.queryPpbomByProductionNo(productionNo));
+        return Result.success(wmsPickingService.queryPpbomByProductionNo(productionNo, true));
     }
 
     @PostMapping("/push")

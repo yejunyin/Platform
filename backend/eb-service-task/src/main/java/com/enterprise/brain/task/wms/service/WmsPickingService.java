@@ -13,6 +13,10 @@ import com.enterprise.brain.task.wms.entity.WmsPicking;
 import com.enterprise.brain.task.wms.entity.WmsPickingEntry;
 import com.enterprise.brain.task.wms.mapper.WmsPickingEntryMapper;
 import com.enterprise.brain.task.wms.mapper.WmsPickingMapper;
+import com.enterprise.brain.task.wms.picktask.entity.WmsPickTask;
+import com.enterprise.brain.task.wms.picktask.entity.WmsPickTaskEntry;
+import com.enterprise.brain.task.wms.picktask.mapper.WmsPickTaskEntryMapper;
+import com.enterprise.brain.task.wms.picktask.mapper.WmsPickTaskMapper;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -48,6 +52,12 @@ public class WmsPickingService {
     private WmsPickingEntryMapper entryMapper;
 
     @Resource
+    private WmsPickTaskMapper pickTaskMapper;
+
+    @Resource
+    private WmsPickTaskEntryMapper pickTaskEntryMapper;
+
+    @Resource
     private KingdeeService kingdeeService;
 
     @Resource
@@ -56,7 +66,7 @@ public class WmsPickingService {
     @Resource
     private PlatformTransactionManager transactionManager;
 
-    // ======================= 1. 查金蝶 PRD_PPBOM =======================
+    // ======================= 1. 查金蝶 PRD_PPBOM（增强：带本地累计） =======================
 
     /**
      * 按生产订单号（PRD_PPBOM.FMOBillNO）查询子项物料明细
@@ -64,8 +74,14 @@ public class WmsPickingService {
      *                 FMaterialID2.fnumber, FMaterialID2.fname, FNeedQty2,
      *                 FUnitID2.fnumber, FUnitID2.fname, FMTONO,
      *                 FPickStockId
+     *
+     * 返回的 VO 额外填充：pushedQty（叫料已推送）、pickTaskTotalQty（定时任务总量）、
+     * pickTaskSentQty（定时已发）、remainingQty（剩余可领 = needQty - pushedQty - pickTaskSentQty）
+     *
+     * @param productionNo 生产订单号
+     * @param fillStock 是否填充即时库存（STK_Inventory，仓库2010），false 可跳过以减少金蝶调用
      */
-    public List<WmsPpbomRowVO> queryPpbomByProductionNo(String productionNo) {
+    public List<WmsPpbomRowVO> queryPpbomByProductionNo(String productionNo, boolean fillStock) {
         if (productionNo == null || productionNo.isBlank()) {
             return new ArrayList<>();
         }
@@ -93,10 +109,237 @@ public class WmsPickingService {
             vo.setUnitName(kingdeeService.textOf(row.get(8)));
             vo.setPlanCode(kingdeeService.textOf(row.get(9)));
             vo.setPickStock(kingdeeService.textOf(row.get(10)));
+            // 先设默认值，后面统一填充
+            vo.setPushedQty(BigDecimal.ZERO);
+            vo.setPickTaskTotalQty(BigDecimal.ZERO);
+            vo.setPickTaskSentQty(BigDecimal.ZERO);
+            vo.setRemainingQty(vo.getNeedQty() != null ? vo.getNeedQty() : BigDecimal.ZERO);
             result.add(vo);
         }
         log.info("[WMS叫料] PRD_PPBOM 返回 {} 条子项明细", result.size());
+
+        // 填充本地累计数据
+        if (!result.isEmpty()) {
+            fillLocalQtySummary(productionNo, result);
+            if (fillStock) {
+                fillImmediateStock(result);
+            }
+        }
         return result;
+    }
+
+    /**
+     * 查金蝶即时库存（STK_Inventory），过滤 FStockId.FNumber='2010'，按物料编码汇总 FBaseQty
+     */
+    private void fillImmediateStock(List<WmsPpbomRowVO> ppbomRows) {
+        // 收集所有不重复的物料编码
+        List<String> materialCodes = ppbomRows.stream()
+                .map(WmsPpbomRowVO::getMaterialCode)
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .distinct()
+                .collect(Collectors.toList());
+        if (materialCodes.isEmpty()) return;
+
+        // 构造 FMaterialId.FNumber in (...)
+        StringBuilder inClause = new StringBuilder();
+        for (int i = 0; i < materialCodes.size(); i++) {
+            if (i > 0) inClause.append(',');
+            inClause.append('\'').append(materialCodes.get(i).replace("'", "''")).append('\'');
+        }
+        String filter = "FMaterialId.FNumber in (" + inClause + ") and FStockId.FNumber='2010' and FBaseQty>0";
+
+        Map<String, BigDecimal> stockMap = new HashMap<>();
+        try {
+            List<JsonNode> rows = kingdeeService.executeBillQuery("STK_Inventory",
+                    "FMaterialId.FNumber,FBaseQty",
+                    filter, null, 5000);
+            for (JsonNode row : rows) {
+                if (!row.isArray() || row.size() < 2) continue;
+                String mc = kingdeeService.textOf(row.get(0));
+                BigDecimal qty = kingdeeService.decimalOf(row.get(1));
+                stockMap.merge(mc, qty != null ? qty : BigDecimal.ZERO, BigDecimal::add);
+            }
+            log.info("[WMS叫料] 查即时库存 仓库=2010 物料数={} 有库存物料={}", materialCodes.size(), stockMap.size());
+        } catch (Exception e) {
+            log.warn("[WMS叫料] 查即时库存失败，跳过填充: {}", e.getMessage());
+        }
+
+        for (WmsPpbomRowVO vo : ppbomRows) {
+            String mc = vo.getMaterialCode();
+            vo.setImmediateStockQty(stockMap.getOrDefault(mc, BigDecimal.ZERO));
+        }
+    }
+
+    /**
+     * 填充本地累计数据到 PPBOM 查询结果：
+     * - pushedQty: 叫料已推送（wms_picking_entry.pickedQty 汇总，wms_picking.status=sent）
+     * - pickTaskTotalQty: 定时任务总量（wms_pick_task_entry.totalQty，排除 cancelled 任务）
+     * - pickTaskSentQty: 定时已发（wms_pick_task_entry.sentQty）
+     * - remainingQty: 剩余可领 = needQty - pushedQty - pickTaskSentQty
+     */
+    private void fillLocalQtySummary(String productionNo, List<WmsPpbomRowVO> ppbomRows) {
+        // 1. 查叫料已推送
+        List<WmsPicking> sentPickings = pickingMapper.selectList(
+                new LambdaQueryWrapper<WmsPicking>()
+                        .eq(WmsPicking::getProductionNo, productionNo)
+                        .eq(WmsPicking::getStatus, "sent"));
+        Map<String, BigDecimal> pushedMap = new HashMap<>();
+        if (!sentPickings.isEmpty()) {
+            List<Long> pickingIds = sentPickings.stream().map(WmsPicking::getId).collect(Collectors.toList());
+            List<WmsPickingEntry> sentEntries = entryMapper.selectList(
+                    new LambdaQueryWrapper<WmsPickingEntry>()
+                            .in(WmsPickingEntry::getPickingId, pickingIds));
+            for (WmsPickingEntry e : sentEntries) {
+                pushedMap.merge(e.getMaterialCode(), safe(e.getPickedQty()), BigDecimal::add);
+            }
+        }
+
+        // 2. 注定时任务总量 & 已发（排除 cancelled）
+        List<WmsPickTask> activeTasks = pickTaskMapper.selectList(
+                new LambdaQueryWrapper<WmsPickTask>()
+                        .eq(WmsPickTask::getProductionNo, productionNo)
+                        .ne(WmsPickTask::getStatus, "cancelled"));
+        Map<String, BigDecimal> pickTaskTotalMap = new HashMap<>();
+        Map<String, BigDecimal> pickTaskSentMap = new HashMap<>();
+        if (!activeTasks.isEmpty()) {
+            List<Long> taskIds = activeTasks.stream().map(WmsPickTask::getId).collect(Collectors.toList());
+            List<WmsPickTaskEntry> taskEntries = pickTaskEntryMapper.selectList(
+                    new LambdaQueryWrapper<WmsPickTaskEntry>()
+                            .in(WmsPickTaskEntry::getTaskId, taskIds));
+            for (WmsPickTaskEntry e : taskEntries) {
+                pickTaskTotalMap.merge(e.getMaterialCode(), safe(e.getTotalQty()), BigDecimal::add);
+                pickTaskSentMap.merge(e.getMaterialCode(), safe(e.getSentQty()), BigDecimal::add);
+            }
+        }
+
+        // 3. 填充到 VO
+        for (WmsPpbomRowVO vo : ppbomRows) {
+            String mc = vo.getMaterialCode();
+            BigDecimal pushed = pushedMap.getOrDefault(mc, BigDecimal.ZERO);
+            BigDecimal ptTotal = pickTaskTotalMap.getOrDefault(mc, BigDecimal.ZERO);
+            BigDecimal ptSent = pickTaskSentMap.getOrDefault(mc, BigDecimal.ZERO);
+            BigDecimal need = vo.getNeedQty() != null ? vo.getNeedQty() : BigDecimal.ZERO;
+            // remaining = 应发 - 叫料已推 - 定时任务承诺总量（预留额度）
+            BigDecimal remaining = need.subtract(pushed).subtract(ptTotal);
+            if (remaining.compareTo(BigDecimal.ZERO) < 0) {
+                remaining = BigDecimal.ZERO;
+            }
+            vo.setPushedQty(pushed);
+            vo.setPickTaskTotalQty(ptTotal);
+            vo.setPickTaskSentQty(ptSent);
+            vo.setRemainingQty(remaining);
+        }
+        log.info("[WMS叫料] 填充本地累计 productionNo={}: ppbom行数={}, 有叫料推送物料={}, 有定时任务物料={}",
+                productionNo, ppbomRows.size(), pushedMap.size(), pickTaskTotalMap.size());
+    }
+
+    /**
+     * 获取指定生产订单号 + 物料编码的本地累计数据汇总（用于校验）
+     * @return Map<materialCode, LocalQtySummary>
+     */
+    public Map<String, LocalQtySummary> getLocalQtySummary(String productionNo) {
+        Map<String, LocalQtySummary> result = new HashMap<>();
+
+        // 叫料已推送
+        List<WmsPicking> sentPickings = pickingMapper.selectList(
+                new LambdaQueryWrapper<WmsPicking>()
+                        .eq(WmsPicking::getProductionNo, productionNo)
+                        .eq(WmsPicking::getStatus, "sent"));
+        if (!sentPickings.isEmpty()) {
+            List<Long> pickingIds = sentPickings.stream().map(WmsPicking::getId).collect(Collectors.toList());
+            List<WmsPickingEntry> sentEntries = entryMapper.selectList(
+                    new LambdaQueryWrapper<WmsPickingEntry>()
+                            .in(WmsPickingEntry::getPickingId, pickingIds));
+            for (WmsPickingEntry e : sentEntries) {
+                LocalQtySummary s = result.computeIfAbsent(e.getMaterialCode(), k -> new LocalQtySummary());
+                s.pushedQty = s.pushedQty.add(safe(e.getPickedQty()));
+            }
+        }
+
+        // 定时任务总量 & 已发（排除 cancelled）
+        List<WmsPickTask> activeTasks = pickTaskMapper.selectList(
+                new LambdaQueryWrapper<WmsPickTask>()
+                        .eq(WmsPickTask::getProductionNo, productionNo)
+                        .ne(WmsPickTask::getStatus, "cancelled"));
+        if (!activeTasks.isEmpty()) {
+            List<Long> taskIds = activeTasks.stream().map(WmsPickTask::getId).collect(Collectors.toList());
+            List<WmsPickTaskEntry> taskEntries = pickTaskEntryMapper.selectList(
+                    new LambdaQueryWrapper<WmsPickTaskEntry>()
+                            .in(WmsPickTaskEntry::getTaskId, taskIds));
+            for (WmsPickTaskEntry e : taskEntries) {
+                LocalQtySummary s = result.computeIfAbsent(e.getMaterialCode(), k -> new LocalQtySummary());
+                s.pickTaskTotalQty = s.pickTaskTotalQty.add(safe(e.getTotalQty()));
+                s.pickTaskSentQty = s.pickTaskSentQty.add(safe(e.getSentQty()));
+            }
+        }
+        return result;
+    }
+
+    private BigDecimal safe(BigDecimal v) {
+        return v != null ? v : BigDecimal.ZERO;
+    }
+
+    /**
+     * 校验叫料推送数量不能超过应发数量减去已推送和定时任务承诺总量
+     * 本次数量 + 叫料已推送 + 定时任务承诺总量 ≤ 金蝶应发数量
+     *
+     * 说明：定时任务 totalQty 是承诺发料量，预占额度；叫料是即时推送，
+     *       不应"抢"定时任务尚未发出但已承诺的额度。
+     */
+    private void validatePickingQty(WmsPickingSendRequest request) {
+        if (request.getEntries() == null || request.getEntries().isEmpty()) return;
+
+        // 查金蝶 PPBOM（内部已自动填充 pushedQty/pickTaskTotalQty/pickTaskSentQty）
+        List<WmsPpbomRowVO> ppbomList = queryPpbomByProductionNo(request.getProductionNo(), false);
+        Map<String, WmsPpbomRowVO> ppbomMap = new HashMap<>();
+        for (WmsPpbomRowVO vo : ppbomList) {
+            ppbomMap.put(vo.getMaterialCode(), vo);
+        }
+
+        List<String> errors = new ArrayList<>();
+        for (WmsPickingSendRequest.Entry e : request.getEntries()) {
+            String mc = e.getMaterialCode();
+            BigDecimal qty = safe(e.getQuantity());
+            WmsPpbomRowVO vo = ppbomMap.get(mc);
+            if (vo == null) {
+                errors.add("物料 " + mc + " 在金蝶用料清单中不存在，无法校验");
+                continue;
+            }
+            BigDecimal needQty = safe(vo.getNeedQty());
+            BigDecimal pushedQty = safe(vo.getPushedQty());
+            BigDecimal ptTotal = safe(vo.getPickTaskTotalQty());
+            BigDecimal totalOccupied = pushedQty.add(ptTotal);
+            BigDecimal newTotal = totalOccupied.add(qty);
+            if (newTotal.compareTo(needQty) > 0) {
+                BigDecimal over = newTotal.subtract(needQty);
+                BigDecimal remaining = needQty.subtract(totalOccupied);
+                errors.add(String.format(
+                        "物料 %s 本次领料 %.4f 超量：金蝶应发 %.4f，叫料已推 %.4f，定时任务承诺 %.4f，剩余可领 %.4f，超出 %.4f",
+                        mc, qty, needQty, pushedQty, ptTotal,
+                        remaining.compareTo(BigDecimal.ZERO) < 0 ? BigDecimal.ZERO : remaining, over));
+            }
+        }
+        if (!errors.isEmpty()) {
+            throw new BusinessException("领料数量校验未通过:\n" + String.join("\n", errors));
+        }
+        log.info("[WMS叫料] 校验通过 productionNo={}, entries={}", request.getProductionNo(), request.getEntries().size());
+    }
+
+    /** 本地累计数量汇总（用于校验和展示） */
+    public static class LocalQtySummary {
+        /** 叫料已推送数量（status=sent） */
+        public BigDecimal pushedQty = BigDecimal.ZERO;
+        /** 定时任务发料总数量（排除 cancelled 任务） */
+        public BigDecimal pickTaskTotalQty = BigDecimal.ZERO;
+        /** 定时任务已发数量 */
+        public BigDecimal pickTaskSentQty = BigDecimal.ZERO;
+
+        /** 已占用总量（叫料已推 + 定时已发） */
+        public BigDecimal totalPushed() {
+            return pushedQty.add(pickTaskSentQty);
+        }
     }
 
     // ======================= 2. 保存待发送的领料单 =======================
@@ -160,7 +403,10 @@ public class WmsPickingService {
         String billNo = "MES-PK-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
                 + "-" + UUID.randomUUID().toString().replace("-", "").substring(0, 4).toUpperCase();
 
-        // 0. 从 entries 拿产品编码（前端查 PRD_PPBOM 时已经带下来了，同一订单相同）
+        // ============ 0. 校验：本次领料数量不能超过 应发数量 - 已推送 - 定时已发 ============
+        validatePickingQty(request);
+
+        // 1. 从 entries 拿产品编码（前端查 PRD_PPBOM 时已经带下来了，同一订单相同）
         String productCode = "";
         String productName = "";
         if (request.getEntries() != null && !request.getEntries().isEmpty()) {

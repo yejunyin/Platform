@@ -49,4 +49,21 @@ public class WmsPpbomRowVO {
 
     @Schema(description = "发料仓库（FPickStockId，基础资料属性，显示中文仓库名）")
     private String pickStock;
+
+    // ============ 本地累计数据（前端展示用，后端查询时填充） ============
+
+    @Schema(description = "叫料已推送 WMS 数量（wms_picking_entry.pickedQty 汇总，status=sent）")
+    private BigDecimal pushedQty;
+
+    @Schema(description = "定时领料任务中该物料的发料总数量（wms_pick_task_entry.totalQty 汇总，不含已取消任务）")
+    private BigDecimal pickTaskTotalQty;
+
+    @Schema(description = "定时领料任务中该物料已发数量（wms_pick_task_entry.sentQty 汇总）")
+    private BigDecimal pickTaskSentQty;
+
+    @Schema(description = "剩余可领料数量 = needQty - pushedQty - pickTaskSentQty")
+    private BigDecimal remainingQty;
+
+    @Schema(description = "即时库存数量（金蝶 STK_Inventory，FStockId.FNumber='2010' 仓库）")
+    private BigDecimal immediateStockQty;
 }

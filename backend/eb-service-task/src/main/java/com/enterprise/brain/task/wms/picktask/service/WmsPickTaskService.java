@@ -3,6 +3,7 @@ package com.enterprise.brain.task.wms.picktask.service;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.enterprise.brain.common.exception.BusinessException;
+import com.enterprise.brain.task.wms.dto.WmsPpbomRowVO;
 import com.enterprise.brain.task.wms.picktask.dto.WmsPickTaskCreateRequest;
 import com.enterprise.brain.task.wms.picktask.entity.WmsPickTask;
 import com.enterprise.brain.task.wms.picktask.entity.WmsPickTaskEntry;
@@ -22,7 +23,10 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 定时 WMS 领料任务服务
@@ -46,6 +50,9 @@ public class WmsPickTaskService {
     @Resource
     private PlatformTransactionManager transactionManager;
 
+    @Resource
+    private WmsPickingService pickingService;
+
     /**
      * 创建定时领料任务（默认 pending 状态，需显式 start 才会开始跑）
      */
@@ -53,6 +60,10 @@ public class WmsPickTaskService {
         if (!scheduler.isEnabled()) {
             throw new BusinessException("定时领料任务已关闭（pick-task.enabled=false），请先在 application.yml 开启");
         }
+
+        // ============ 定时任务创建不做数量校验，交给调度器每轮推送时做全局防护 ============
+        // validatePickTaskQty(req);
+
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         WmsPickTask created = tx.execute(status -> {
             LocalDateTime now = LocalDateTime.now();
@@ -194,5 +205,55 @@ public class WmsPickTaskService {
         QueryWrapper<WmsPickTaskLog> qw = new QueryWrapper<>();
         qw.eq("task_id", taskId).orderByDesc("create_time");
         return logMapper.selectPage(Page.of(pageNum, pageSize), qw);
+    }
+
+    private BigDecimal safe(BigDecimal v) {
+        return v != null ? v : BigDecimal.ZERO;
+    }
+
+    /**
+     * 校验定时任务 totalQty 不能超过应发数量减去叫料已推送和其他定时任务承诺总量
+     * 新建 totalQty + 叫料已推送 + 其他定时任务承诺总量 ≤ 金蝶应发数量
+     *
+     * 说明：定时任务 totalQty 是承诺发料量，预占额度；
+     *       已有定时任务的未发部分也要计入占用。
+     */
+    private void validatePickTaskQty(WmsPickTaskCreateRequest req) {
+        if (req.getEntries() == null || req.getEntries().isEmpty()) return;
+
+        // 查金蝶 PPBOM（内部已自动填充 pushedQty/pickTaskTotalQty/pickTaskSentQty）
+        List<WmsPpbomRowVO> ppbomList = pickingService.queryPpbomByProductionNo(req.getProductionNo(), false);
+        Map<String, WmsPpbomRowVO> ppbomMap = new HashMap<>();
+        for (WmsPpbomRowVO vo : ppbomList) {
+            ppbomMap.put(vo.getMaterialCode(), vo);
+        }
+
+        List<String> errors = new ArrayList<>();
+        for (WmsPickTaskCreateRequest.Entry e : req.getEntries()) {
+            String mc = e.getMaterialCode();
+            BigDecimal totalQty = safe(e.getTotalQty());
+            WmsPpbomRowVO vo = ppbomMap.get(mc);
+            if (vo == null) {
+                errors.add("物料 " + mc + " 在金蝶用料清单中不存在，无法校验");
+                continue;
+            }
+            BigDecimal needQty = safe(vo.getNeedQty());
+            BigDecimal pushedQty = safe(vo.getPushedQty());
+            BigDecimal ptTotal = safe(vo.getPickTaskTotalQty());
+            BigDecimal totalOccupied = pushedQty.add(ptTotal);
+            BigDecimal newTotal = totalOccupied.add(totalQty);
+            if (newTotal.compareTo(needQty) > 0) {
+                BigDecimal over = newTotal.subtract(needQty);
+                BigDecimal remaining = needQty.subtract(totalOccupied);
+                errors.add(String.format(
+                        "物料 %s 定时发料总量 %.4f 超量：金蝶应发 %.4f，叫料已推 %.4f，已有定时任务承诺 %.4f，剩余可领 %.4f，超出 %.4f",
+                        mc, totalQty, needQty, pushedQty, ptTotal,
+                        remaining.compareTo(BigDecimal.ZERO) < 0 ? BigDecimal.ZERO : remaining, over));
+            }
+        }
+        if (!errors.isEmpty()) {
+            throw new BusinessException("定时领料任务数量校验未通过:\n" + String.join("\n", errors));
+        }
+        log.info("[定时领料] 校验通过 productionNo={}, entries={}", req.getProductionNo(), req.getEntries().size());
     }
 }
