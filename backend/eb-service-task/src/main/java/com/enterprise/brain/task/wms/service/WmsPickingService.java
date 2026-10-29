@@ -105,13 +105,13 @@ public class WmsPickingService {
             BigDecimal needQty = kingdeeService.decimalOf(row.get(6));
             BigDecimal pickedQty = kingdeeService.decimalOf(row.get(7));
 
-            // 仅保留 应发数量 > 已领数量 的行
-            BigDecimal safeNeed = needQty != null ? needQty : BigDecimal.ZERO;
-            BigDecimal safePicked = pickedQty != null ? pickedQty : BigDecimal.ZERO;
-            if (safeNeed.compareTo(safePicked) <= 0) {
-                filteredOut++;
-                continue;
-            }
+            // [临时关闭] 仅保留 应发数量 > 已领数量 的行 —— 先全部显示，由剩余可领=应发-已领-叫料已推-定时承诺 来拦截
+            // BigDecimal safeNeed = needQty != null ? needQty : BigDecimal.ZERO;
+            // BigDecimal safePicked = pickedQty != null ? pickedQty : BigDecimal.ZERO;
+            // if (safeNeed.compareTo(safePicked) <= 0) {
+            //     filteredOut++;
+            //     continue;
+            // }
 
             WmsPpbomRowVO vo = new WmsPpbomRowVO();
             vo.setPpbomBillNo(kingdeeService.textOf(row.get(0)));
@@ -425,8 +425,8 @@ public class WmsPickingService {
         String billNo = "MES-PK-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
                 + "-" + UUID.randomUUID().toString().replace("-", "").substring(0, 4).toUpperCase();
 
-        // ============ 0. 校验：本次领料数量不能超过 应发数量 - 已推送 - 定时已发 ============
-        validatePickingQty(request);
+        // [临时关闭] 校验：本次领料数量不能超过 应发数量 - 已领 - 叫料已推 - 定时承诺
+        // validatePickingQty(request);
 
         // 1. 从 entries 拿产品编码（前端查 PRD_PPBOM 时已经带下来了，同一订单相同）
         String productCode = "";

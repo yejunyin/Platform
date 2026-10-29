@@ -487,27 +487,27 @@ async function confirmCreate() {
   if (!submitForm.lineCode.trim()) { ElMessage.warning('请填写生产线编码'); return }
   if (taskItems.value.length === 0) { ElMessage.warning('请先加入定时任务物料'); return }
 
-  // ===== 前端超量校验，不过直接拦住创建 =====
+  // [临时关闭] 前端超量校验，不过直接拦住创建
   // 剩余可领 = 应发 - 已领 - 叫料已推 - 已有定时承诺
-  const errs: string[] = []
-  for (const t of taskItems.value) {
-    const need = Number(t.needQty ?? 0)
-    const picked = Number(t.pickedQty ?? 0)
-    const pushed = Number(t.pushedQty ?? 0)
-    const ptTotal = Number(t.pickTaskTotalQty ?? 0)
-    const remain = Math.max(0, need - picked - pushed - ptTotal)
-    const total = Number(t._totalQty ?? 0)
-    if (total > remain) {
-      errs.push(`物料 ${t.materialCode} 定时发料总量 ${total.toFixed(2)} 超量：剩余可领 ${remain.toFixed(2)}`)
-    }
-  }
-  if (errs.length > 0) {
-    ElMessage.error({
-      message: `超量校验未通过，共 ${errs.length} 项：\n${errs.join('\n')}\n请返回修改发料总数量`,
-      duration: 8000, showClose: true,
-    } as any)
-    return
-  }
+  // const errs: string[] = []
+  // for (const t of taskItems.value) {
+  //   const need = Number(t.needQty ?? 0)
+  //   const picked = Number(t.pickedQty ?? 0)
+  //   const pushed = Number(t.pushedQty ?? 0)
+  //   const ptTotal = Number(t.pickTaskTotalQty ?? 0)
+  //   const remain = Math.max(0, need - picked - pushed - ptTotal)
+  //   const total = Number(t._totalQty ?? 0)
+  //   if (total > remain) {
+  //     errs.push(`物料 ${t.materialCode} 定时发料总量 ${total.toFixed(2)} 超量：剩余可领 ${remain.toFixed(2)}`)
+  //   }
+  // }
+  // if (errs.length > 0) {
+  //   ElMessage.error({
+  //     message: `超量校验未通过，共 ${errs.length} 项：\n${errs.join('\n')}\n请返回修改发料总数量`,
+  //     duration: 8000, showClose: true,
+  //   } as any)
+  //   return
+  // }
 
   submitting.value = true
   try {

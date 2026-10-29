@@ -1,1 +1,0 @@
-import{s as r}from"./request-kLY0UETE.js";const s="/wage/groups";function o(){return r.get(s)}function u(e){return e.id?r.put(`${s}/${e.id}`,e):r.post(s,e)}function n(e){return r.delete(`${s}/${e}`)}export{n as d,o as l,u as s};
