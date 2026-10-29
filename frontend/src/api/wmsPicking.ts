@@ -10,6 +10,8 @@ export interface PpbomRow {
   materialCode?: string
   materialName?: string
   needQty?: number
+  /** 已领数量（FPickedQty，金蝶 PRD_PPBOM 累计已领） */
+  pickedQty?: number
   /** 单位编码（推 WMS UnitCode 用，如 PCS/EA/KG） */
   unitNumber?: string
   /** 单位名称（展示用，如：个/台/千克） */

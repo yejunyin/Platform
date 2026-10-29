@@ -72,6 +72,11 @@
             <span class="mono">{{ row.needQty?.toFixed(4) ?? '—' }}</span>
           </template>
         </el-table-column>
+        <el-table-column label="已领数量" width="110" align="right">
+          <template #default="{ row }">
+            <span class="mono text-picked">{{ row.pickedQty?.toFixed(4) ?? '0.0000' }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="叫料已推" width="110" align="right">
           <template #default="{ row }">
             <span class="mono text-pushed">{{ row.pushedQty?.toFixed(4) ?? '0.0000' }}</span>
@@ -140,6 +145,11 @@
         <el-table-column label="应发数量" prop="needQty" width="110" align="right">
           <template #default="{ row }">
             <span class="mono">{{ row.needQty?.toFixed(4) ?? '—' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="已领数量" width="110" align="right">
+          <template #default="{ row }">
+            <span class="mono text-picked">{{ row.pickedQty?.toFixed(4) ?? '0.0000' }}</span>
           </template>
         </el-table-column>
         <el-table-column label="叫料已推" width="100" align="right">
@@ -391,6 +401,30 @@ function openSendDialog() {
     ElMessage.warning('请先加入领料')
     return
   }
+
+  // ===== 点发送前先做超量校验，不过直接拦住，弹窗不让弹 =====
+  // 剩余可领 = 应发 - 已领 - 叫料已推 - 定时承诺
+  const errs: string[] = []
+  for (const p of pickingItems.value) {
+    const need = Number(p.needQty ?? 0)
+    const picked = Number(p.pickedQty ?? 0)
+    const pushed = Number(p.pushedQty ?? 0)
+    const ptTotal = Number(p.pickTaskTotalQty ?? 0)
+    const remain = Math.max(0, need - picked - pushed - ptTotal)
+    const qty = Number(p._pickQty ?? 0)
+    if (qty > remain) {
+      errs.push(`物料 ${p.materialCode} 领料 ${qty.toFixed(4)} 超量：剩余可领 ${remain.toFixed(4)}`)
+    }
+  }
+  if (errs.length > 0) {
+    ElMessage.error({
+      message: `超量校验未通过，共 ${errs.length} 项：\n${errs.join('\n')}\n请返回修改领料数量`,
+      duration: 8000,
+      showClose: true,
+    } as any)
+    return
+  }
+
   sendForm.lineCode = 'LB-CX-'
   sendDialogVisible.value = true
 }
@@ -499,6 +533,7 @@ function remainingClass(row: PpbomRow) {
   :deep(.mono) { font-family: Consolas, 'SF Mono', Menlo, monospace; }
 }
 
+.text-picked { color: #e6a23c; font-weight: 600; }
 .text-pushed { color: #409eff; }
 .text-picktask { color: #9b59b6; }
 .text-danger { color: #f56c6c; font-weight: 600; }

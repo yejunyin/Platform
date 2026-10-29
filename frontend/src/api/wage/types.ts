@@ -60,41 +60,39 @@ export interface WagePrice {
   status: string
 }
 
-/** 生产任务单 */
+/** 生产任务单（单据头，只含产品级信息） */
 export interface WageOrder {
   id: string
   taskNo: string
   feedNo?: string
   productName?: string
   materialCode?: string
-  subMaterialName?: string
   productQty?: number
-  processName?: string
   workshop?: string
-  unitPrice: number
+  syncTime?: string
+}
+
+/** 生产用料清单（每条丝印/移印物料一行，自带完整业务状态） */
+export interface WageMaterial {
+  id: string
+  taskNo: string
+  feedNo?: string
+  materialCode: string
+  materialName?: string
+  unit?: string
+  qty: number
+  processName?: string
+  unitPrice?: number
+  // 明细级业务状态
   groupId?: string
-  groupName?: string
-  confirmStatus: string
+  groupName?: string   // JOIN wage_group 带出
   bizStatus: string
   startTime?: string
   finishUser?: string
   finishQty?: number
   finishTime?: string
   stockInQty?: number
-  settleStatus: string
-  syncTime?: string
-}
-
-/** 生产用料清单 */
-export interface WageMaterial {
-  id: string
-  taskNo: string
-  feedNo?: string
-  bizStatus: string
-  materialCode: string
-  materialName?: string
-  unit?: string
-  qty: number
+  settleStatus?: string
 }
 
 /** 计件统计明细 */

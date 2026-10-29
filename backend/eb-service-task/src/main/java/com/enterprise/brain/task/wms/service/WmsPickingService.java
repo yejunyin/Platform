@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.enterprise.brain.common.exception.BusinessException;
 import com.enterprise.brain.task.service.KingdeeService;
+import com.enterprise.brain.task.service.KingdeeService.StockRow;
 import com.enterprise.brain.task.service.WmsService;
 import com.enterprise.brain.task.wms.dto.WmsPpbomRowVO;
 import com.enterprise.brain.task.wms.dto.WmsPickingSendRequest;
@@ -71,12 +72,13 @@ public class WmsPickingService {
     /**
      * 按生产订单号（PRD_PPBOM.FMOBillNO）查询子项物料明细
      * FieldKeys 顺序: FBillNO, FMOBillNO, FMaterialID.fnumber, FMaterialID.fname,
-     *                 FMaterialID2.fnumber, FMaterialID2.fname, FNeedQty2,
-     *                 FUnitID2.fnumber, FUnitID2.fname, FMTONO,
-     *                 FPickStockId
+     *                 FMaterialID2.fnumber, FMaterialID2.fname, FNeedQty2, FPickedQty,
+     *                 FUnitID2.fnumber, FUnitID2.fname, FMTONO, FPickStockId
+     *
+     * 仅保留 FNeedQty2 > FPickedQty 的行（应发数量 > 已领数量）
      *
      * 返回的 VO 额外填充：pushedQty（叫料已推送）、pickTaskTotalQty（定时任务总量）、
-     * pickTaskSentQty（定时已发）、remainingQty（剩余可领 = needQty - pushedQty - pickTaskSentQty）
+     * pickTaskSentQty（定时已发）、remainingQty（剩余可领 = needQty - pushedQty - pickTaskTotalQty）
      *
      * @param productionNo 生产订单号
      * @param fillStock 是否填充即时库存（STK_Inventory，仓库2010），false 可跳过以减少金蝶调用
@@ -87,16 +89,30 @@ public class WmsPickingService {
         }
         String filter = "FMOBillNO = '" + productionNo.replace("'", "''") + "'";
         String fieldKeys = "FBillNo,FMOBillNO,FMaterialID.fnumber,FMaterialID.fname," +
-                "FMaterialID2.fnumber,FMaterialID2.fname,FNeedQty2,FUnitID2.fnumber,FUnitID2.fname," +
-                "FMTONO,FPickStockId";
+                "FMaterialID2.fnumber,FMaterialID2.fname,FNeedQty2,FPickedQty,FUnitID2.fnumber," +
+                "FUnitID2.fname,FMTONO,FPickStockId";
 
         log.info("[WMS叫料] 查金蝶 PRD_PPBOM filter={}", filter);
         List<JsonNode> rows = kingdeeService.executeBillQuery("PRD_PPBOM", fieldKeys, filter,
                 null, 500);
 
         List<WmsPpbomRowVO> result = new ArrayList<>();
+        int totalRowCount = 0;
+        int filteredOut = 0;
         for (JsonNode row : rows) {
-            if (!row.isArray() || row.size() < 11) continue;
+            if (!row.isArray() || row.size() < 12) continue;
+            totalRowCount++;
+            BigDecimal needQty = kingdeeService.decimalOf(row.get(6));
+            BigDecimal pickedQty = kingdeeService.decimalOf(row.get(7));
+
+            // 仅保留 应发数量 > 已领数量 的行
+            BigDecimal safeNeed = needQty != null ? needQty : BigDecimal.ZERO;
+            BigDecimal safePicked = pickedQty != null ? pickedQty : BigDecimal.ZERO;
+            if (safeNeed.compareTo(safePicked) <= 0) {
+                filteredOut++;
+                continue;
+            }
+
             WmsPpbomRowVO vo = new WmsPpbomRowVO();
             vo.setPpbomBillNo(kingdeeService.textOf(row.get(0)));
             vo.setProductionNo(kingdeeService.textOf(row.get(1)));
@@ -104,11 +120,12 @@ public class WmsPickingService {
             vo.setProductName(kingdeeService.textOf(row.get(3)));
             vo.setMaterialCode(kingdeeService.textOf(row.get(4)));
             vo.setMaterialName(kingdeeService.textOf(row.get(5)));
-            vo.setNeedQty(kingdeeService.decimalOf(row.get(6)));
-            vo.setUnitNumber(kingdeeService.textOf(row.get(7)));
-            vo.setUnitName(kingdeeService.textOf(row.get(8)));
-            vo.setPlanCode(kingdeeService.textOf(row.get(9)));
-            vo.setPickStock(kingdeeService.textOf(row.get(10)));
+            vo.setNeedQty(needQty);
+            vo.setPickedQty(pickedQty);
+            vo.setUnitNumber(kingdeeService.textOf(row.get(8)));
+            vo.setUnitName(kingdeeService.textOf(row.get(9)));
+            vo.setPlanCode(kingdeeService.textOf(row.get(10)));
+            vo.setPickStock(kingdeeService.textOf(row.get(11)));
             // 先设默认值，后面统一填充
             vo.setPushedQty(BigDecimal.ZERO);
             vo.setPickTaskTotalQty(BigDecimal.ZERO);
@@ -116,7 +133,8 @@ public class WmsPickingService {
             vo.setRemainingQty(vo.getNeedQty() != null ? vo.getNeedQty() : BigDecimal.ZERO);
             result.add(vo);
         }
-        log.info("[WMS叫料] PRD_PPBOM 返回 {} 条子项明细", result.size());
+        log.info("[WMS叫料] PRD_PPBOM 返回 {} 条，过滤应发≤已领 {} 条，最终 {} 条",
+                totalRowCount, filteredOut, result.size());
 
         // 填充本地累计数据
         if (!result.isEmpty()) {
@@ -221,8 +239,9 @@ public class WmsPickingService {
             BigDecimal ptTotal = pickTaskTotalMap.getOrDefault(mc, BigDecimal.ZERO);
             BigDecimal ptSent = pickTaskSentMap.getOrDefault(mc, BigDecimal.ZERO);
             BigDecimal need = vo.getNeedQty() != null ? vo.getNeedQty() : BigDecimal.ZERO;
-            // remaining = 应发 - 叫料已推 - 定时任务承诺总量（预留额度）
-            BigDecimal remaining = need.subtract(pushed).subtract(ptTotal);
+            BigDecimal picked = vo.getPickedQty() != null ? vo.getPickedQty() : BigDecimal.ZERO;
+            // remaining = 应发 - 已领 - 叫料已推 - 定时任务承诺总量
+            BigDecimal remaining = need.subtract(picked).subtract(pushed).subtract(ptTotal);
             if (remaining.compareTo(BigDecimal.ZERO) < 0) {
                 remaining = BigDecimal.ZERO;
             }
@@ -282,16 +301,16 @@ public class WmsPickingService {
     }
 
     /**
-     * 校验叫料推送数量不能超过应发数量减去已推送和定时任务承诺总量
-     * 本次数量 + 叫料已推送 + 定时任务承诺总量 ≤ 金蝶应发数量
+     * 校验叫料推送数量不能超过应发数量
+     * 已领 + 叫料已推送 + 定时任务承诺总量 + 本次领料 ≤ 金蝶应发数量
      *
-     * 说明：定时任务 totalQty 是承诺发料量，预占额度；叫料是即时推送，
-     *       不应"抢"定时任务尚未发出但已承诺的额度。
+     * 说明：pickedQty 是金蝶已领（FPickedQty），pushedQty 是本地叫料已推，
+     *       pickTaskTotalQty 是定时任务承诺发料量，三者一起预占额度。
      */
     private void validatePickingQty(WmsPickingSendRequest request) {
         if (request.getEntries() == null || request.getEntries().isEmpty()) return;
 
-        // 查金蝶 PPBOM（内部已自动填充 pushedQty/pickTaskTotalQty/pickTaskSentQty）
+        // 查金蝶 PPBOM（内部已自动填充 pickedQty/pushedQty/pickTaskTotalQty/pickTaskSentQty）
         List<WmsPpbomRowVO> ppbomList = queryPpbomByProductionNo(request.getProductionNo(), false);
         Map<String, WmsPpbomRowVO> ppbomMap = new HashMap<>();
         for (WmsPpbomRowVO vo : ppbomList) {
@@ -308,16 +327,19 @@ public class WmsPickingService {
                 continue;
             }
             BigDecimal needQty = safe(vo.getNeedQty());
+            BigDecimal pickedQty = safe(vo.getPickedQty());
             BigDecimal pushedQty = safe(vo.getPushedQty());
             BigDecimal ptTotal = safe(vo.getPickTaskTotalQty());
-            BigDecimal totalOccupied = pushedQty.add(ptTotal);
+            BigDecimal totalOccupied = pickedQty.add(pushedQty).add(ptTotal);
             BigDecimal newTotal = totalOccupied.add(qty);
+            log.info("[WMS叫料] 校验物料={} 应发={} 已领={} 叫料已推={} 定时承诺={} 预占合计={} 本次={} 新合计={}",
+                    mc, needQty, pickedQty, pushedQty, ptTotal, totalOccupied, qty, newTotal);
             if (newTotal.compareTo(needQty) > 0) {
                 BigDecimal over = newTotal.subtract(needQty);
                 BigDecimal remaining = needQty.subtract(totalOccupied);
                 errors.add(String.format(
-                        "物料 %s 本次领料 %.4f 超量：金蝶应发 %.4f，叫料已推 %.4f，定时任务承诺 %.4f，剩余可领 %.4f，超出 %.4f",
-                        mc, qty, needQty, pushedQty, ptTotal,
+                        "物料 %s 本次领料 %.4f 超量：金蝶应发 %.4f，已领 %.4f，叫料已推 %.4f，定时任务承诺 %.4f，剩余可领 %.4f，超出 %.4f",
+                        mc, qty, needQty, pickedQty, pushedQty, ptTotal,
                         remaining.compareTo(BigDecimal.ZERO) < 0 ? BigDecimal.ZERO : remaining, over));
             }
         }
@@ -430,20 +452,20 @@ public class WmsPickingService {
         data.put("CostCenterCode", request.getOrgCode() != null ? request.getOrgCode() : "102");
         data.put("LineCode", request.getLineCode());
 
-        List<Map<String, Object>> wmsEntries = new ArrayList<>();
-        int itemNo = 1;
+        // FIFO 批次拆分：一个批次一条 entry
+        Map<String, BigDecimal> qtyMap = new LinkedHashMap<>();
+        Map<String, String> unitMap = new LinkedHashMap<>();
+        Map<String, String> planMap = new LinkedHashMap<>();
+        Map<String, String> stationMap = new LinkedHashMap<>();
+        Map<String, String> whMap = new LinkedHashMap<>();
         for (WmsPickingSendRequest.Entry e : request.getEntries()) {
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("ItemNo", itemNo++);
-            m.put("MaterialCode", e.getMaterialCode());
-            m.put("BatchCode", null);
-            m.put("Quantity", e.getQuantity());
-            m.put("UnitCode", e.getUnitCode());
-            m.put("PlanCode", e.getPlanCode() != null ? e.getPlanCode() : "");
-            m.put("ProductionStationCode", e.getProductionStationCode() != null ? e.getProductionStationCode() : "3SC01");
-            m.put("OutWarehouseCode", "2010");
-            wmsEntries.add(m);
+            qtyMap.put(e.getMaterialCode(), safe(e.getQuantity()));
+            unitMap.put(e.getMaterialCode(), e.getUnitCode() != null ? e.getUnitCode() : "");
+            planMap.put(e.getMaterialCode(), e.getPlanCode() != null ? e.getPlanCode() : "");
+            stationMap.put(e.getMaterialCode(), e.getProductionStationCode() != null ? e.getProductionStationCode() : "3SC01");
+            whMap.put(e.getMaterialCode(), e.getOutWarehouseCode() != null ? e.getOutWarehouseCode() : "2010");
         }
+        List<Map<String, Object>> wmsEntries = fifoSplitWmsEntries(qtyMap, unitMap, planMap, stationMap, whMap);
         data.put("Entries", wmsEntries);
 
         // 打印完整 JSON 到日志
@@ -456,7 +478,8 @@ public class WmsPickingService {
         WmsPickingSendResponse resp;
         RuntimeException pushError = null;
         try {
-            log.info("[WMS叫料] 推送 ProductionPicking billNo={}, 物料行数={}", billNo, wmsEntries.size());
+            log.info("[WMS叫料] 推送 ProductionPicking billNo={}, FIFO拆分后行数={}, 原物料行数={}",
+                    billNo, wmsEntries.size(), request.getEntries().size());
             resp = wmsService.sendProductionPicking(data, request.getLineCode());
             log.info("[WMS叫料] 推送结果 Success={}, Message={}", resp.getSuccess(), resp.getMessage());
         } catch (RuntimeException ex) {
@@ -602,6 +625,157 @@ public class WmsPickingService {
         head.setUpdateTime(LocalDateTime.now());
         pickingMapper.updateById(head);
         return head;
+    }
+
+    // ======================= 3.5 FIFO 批次拆分 =======================
+
+    /**
+     * FIFO 批次拆分：查金蝶 STK_Inventory（FUpdateTime asc = 先入先出），
+     * 按批次先后把每个物料的需求数量拆分到多条 WMS entry（一个批次一条）。
+     * 查不到批次或库存不足时，剩余部分仍发 BatchCode=null 让 WMS 侧处理。
+     *
+     * @param materialQtyMap  物料编码 → 需要发的数量
+     * @param unitCodeMap     物料编码 → 单位编码
+     * @param planCodeMap     物料编码 → 计划跟踪号
+     * @param stationCodeMap  物料编码 → 工位编码
+     * @param warehouseCodeMap 物料编码 → 发料仓库（默认 2010）
+     * @return FIFO 拆分后的 WMS entries（BatchCode 已填）
+     */
+    public List<Map<String, Object>> fifoSplitWmsEntries(
+            Map<String, BigDecimal> materialQtyMap,
+            Map<String, String> unitCodeMap,
+            Map<String, String> planCodeMap,
+            Map<String, String> stationCodeMap,
+            Map<String, String> warehouseCodeMap) {
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        if (materialQtyMap.isEmpty()) return result;
+
+        List<String> materialCodes = new ArrayList<>(materialQtyMap.keySet());
+        String firstWarehouse = warehouseCodeMap.values().stream().findFirst().orElse("2010");
+
+        // 查金蝶 FIFO 批次库存（全仓库）
+        List<StockRow> allStocks;
+        try {
+            allStocks = kingdeeService.queryStock(materialCodes);
+        } catch (Exception e) {
+            log.warn("[WMS叫料] 查金蝶 FIFO 批次失败，回退无批次发送: {}", e.getMessage());
+            allStocks = new ArrayList<>();
+        }
+
+        // 只取发料仓库（优先用 entries 里的 OutWarehouseCode，默认 2010）
+        Map<String, List<StockRow>> stockByMaterial = allStocks.stream()
+                .filter(s -> firstWarehouse.equals(s.getStockNumber()))
+                .collect(Collectors.groupingBy(StockRow::getMaterialCode, LinkedHashMap::new, Collectors.toList()));
+
+        log.info("[WMS叫料] FIFO 批次拆分 materialCount={} stockRows={} (warehouse={})",
+                materialCodes.size(), allStocks.size(), firstWarehouse);
+
+        int itemNo = 1;
+        for (String materialCode : materialCodes) {
+            BigDecimal need = safe(materialQtyMap.get(materialCode));
+            if (need.compareTo(BigDecimal.ZERO) <= 0) continue;
+
+            List<StockRow> batches = stockByMaterial.getOrDefault(materialCode, new ArrayList<>());
+            BigDecimal remaining = need;
+            String myPlanCode = planCodeMap.get(materialCode);
+
+            // 分两轮：第一轮 planCode 精确匹配，第二轮通用（未使用过的所有批次）
+            Set<String> usedLotKeys = new HashSet<>();
+
+            // ===== 第一轮：只吃 planCode 匹配的批次 =====
+            if (myPlanCode != null && !myPlanCode.isBlank()) {
+                for (StockRow batch : batches) {
+                    if (remaining.compareTo(BigDecimal.ZERO) <= 0) break;
+                    // FMTONO 匹配（两边都不为空才比）
+                    String batchPlan = batch.getPlanCode();
+                    if (batchPlan == null || batchPlan.isBlank() || !myPlanCode.equals(batchPlan)) continue;
+                    BigDecimal avail = safe(batch.getBaseQty());
+                    if (avail.compareTo(BigDecimal.ZERO) <= 0) continue;
+
+                    BigDecimal thisQty = remaining.min(avail);
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("ItemNo", itemNo++);
+                    m.put("MaterialCode", materialCode);
+                    m.put("BatchCode", batch.getLotNumber());
+                    m.put("Quantity", thisQty);
+                    m.put("UnitCode", unitCodeMap.getOrDefault(materialCode, ""));
+                    m.put("PlanCode", myPlanCode);
+                    m.put("ProductionStationCode", stationCodeMap.getOrDefault(materialCode, "3SC01"));
+                    m.put("OutWarehouseCode", warehouseCodeMap.getOrDefault(materialCode, firstWarehouse));
+                    result.add(m);
+                    remaining = remaining.subtract(thisQty);
+                    usedLotKeys.add(batch.getLotNumber());
+
+                    log.info("[WMS叫料] FIFO(plan) 物料={} 计划跟踪号={} 批次={} 可用={} 分配={} 剩余={}",
+                            materialCode, myPlanCode, batch.getLotNumber(), avail, thisQty, remaining);
+                }
+            }
+
+            // ===== 第二轮：通用批次补剩余（planCode 不匹配的 / 无计划跟踪号的批次）=====
+            if (remaining.compareTo(BigDecimal.ZERO) > 0) {
+                for (StockRow batch : batches) {
+                    if (remaining.compareTo(BigDecimal.ZERO) <= 0) break;
+                    // 跳过第一轮用过的
+                    if (usedLotKeys.contains(batch.getLotNumber())) continue;
+                    BigDecimal avail = safe(batch.getBaseQty());
+                    if (avail.compareTo(BigDecimal.ZERO) <= 0) continue;
+
+                    BigDecimal thisQty = remaining.min(avail);
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("ItemNo", itemNo++);
+                    m.put("MaterialCode", materialCode);
+                    m.put("BatchCode", batch.getLotNumber());
+                    m.put("Quantity", thisQty);
+                    m.put("UnitCode", unitCodeMap.getOrDefault(materialCode, ""));
+                    m.put("PlanCode", myPlanCode != null ? myPlanCode : "");
+                    m.put("ProductionStationCode", stationCodeMap.getOrDefault(materialCode, "3SC01"));
+                    m.put("OutWarehouseCode", warehouseCodeMap.getOrDefault(materialCode, firstWarehouse));
+                    result.add(m);
+                    remaining = remaining.subtract(thisQty);
+                    usedLotKeys.add(batch.getLotNumber());
+
+                    log.info("[WMS叫料] FIFO(通用) 物料={} 批次={} 可用={} 分配={} 剩余={}",
+                            materialCode, batch.getLotNumber(), avail, thisQty, remaining);
+                }
+            }
+
+            // 库存不足部分：仍发一条 BatchCode=null，让 WMS/ERP 侧处理
+            if (remaining.compareTo(BigDecimal.ZERO) > 0) {
+                log.warn("[WMS叫料] FIFO 物料={} 批次库存不足(plan={})，剩余 {} 回退无批次发送",
+                        materialCode, myPlanCode, remaining);
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("ItemNo", itemNo++);
+                m.put("MaterialCode", materialCode);
+                m.put("BatchCode", null);
+                m.put("Quantity", remaining);
+                m.put("UnitCode", unitCodeMap.getOrDefault(materialCode, ""));
+                m.put("PlanCode", myPlanCode != null ? myPlanCode : "");
+                m.put("ProductionStationCode", stationCodeMap.getOrDefault(materialCode, "3SC01"));
+                m.put("OutWarehouseCode", warehouseCodeMap.getOrDefault(materialCode, firstWarehouse));
+                result.add(m);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * FIFO 批次拆分重载：单个 Entry → 可能多条 WMS entries
+     */
+    public List<Map<String, Object>> fifoSplitWmsEntry(
+            String materialCode, BigDecimal qty, String unitCode, String planCode,
+            String stationCode, String warehouseCode) {
+        Map<String, BigDecimal> qtyMap = new LinkedHashMap<>();
+        qtyMap.put(materialCode, qty);
+        Map<String, String> unitMap = new LinkedHashMap<>();
+        unitMap.put(materialCode, unitCode);
+        Map<String, String> planMap = new LinkedHashMap<>();
+        planMap.put(materialCode, planCode);
+        Map<String, String> stationMap = new LinkedHashMap<>();
+        stationMap.put(materialCode, stationCode);
+        Map<String, String> whMap = new LinkedHashMap<>();
+        whMap.put(materialCode, warehouseCode);
+        return fifoSplitWmsEntries(qtyMap, unitMap, planMap, stationMap, whMap);
     }
 
     // ======================= 4. 查询历史 =======================

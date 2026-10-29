@@ -1032,14 +1032,18 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
         // ===== View 反查子仓位编码：ExecuteBillQuery 拿不到 FStockLocId.FNumber，必须走 View =====
         Set<String> uniquePickBills = pickRows.stream()
                 .map(KingdeeService.PickStockRow::getBillNo).collect(Collectors.toSet());
-        Map<String, Map<Long, String>> billLocCodeMap = new HashMap<>();
+        Map<String, Map<Long, KingdeeService.StockLocInfo>> billLocCodeMap = new HashMap<>();
         for (String billNo : uniquePickBills) {
             billLocCodeMap.put(billNo, kingdeeService.viewPickStockLocCodes(billNo));
         }
         for (KingdeeService.PickStockRow r : pickRows) {
-            Map<Long, String> codes = billLocCodeMap.get(r.getBillNo());
+            Map<Long, KingdeeService.StockLocInfo> codes = billLocCodeMap.get(r.getBillNo());
             if (codes != null && r.getMoEntryId() != null) {
-                r.setStockLocCode(codes.get(r.getMoEntryId()));
+                KingdeeService.StockLocInfo info = codes.get(r.getMoEntryId());
+                if (info != null) {
+                    r.setStockLocCode(info.getCode());
+                    r.setStockLocLevel(info.getLevel());
+                }
             }
         }
 
@@ -1105,8 +1109,9 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
             // 仓位优先取领料单分录实际发料仓位；领料单未启用仓位(0)时回退批次匹配仓位
             retEntry.setLocationId(pick.getStockLocId() != null && pick.getStockLocId() > 0
                     ? pick.getStockLocId() : batch.getLocationId());
-            // 子仓位编码：View 反查 pickRows 里已带，兜底批次里可能存了(虽然之前没存)
+            // 子仓位编码 + 等级：View 反查 pickRows 里已带，level 决定写回 combo 键 FSTOCKLOCID__FF{level}
             retEntry.setLocationCode(pick.getStockLocCode());
+            retEntry.setLocationLevel(pick.getStockLocLevel());
             // 计划跟踪号透传用料清单FMTONO（方案A对齐，空值传空串由KingdeeService处理）
             retEntry.setMtoNo(ppbom.getMtoNo());
             // 物料行备注：取申请明细行FEntrtyMemo（审核时落库；retryErpOrder/重推时从DB读取，不依赖前端再次提交）

@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.Resource;
 import lombok.Data;
+import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
@@ -173,6 +174,7 @@ public class KingdeeService {
         private String lotNumber;       // FLot.FNumber 批次
         private String stockNumber;     // FStockId.FNumber 仓库编码
         private String stockName;       // FStockId.FName 仓库名称
+        private String planCode;        // FPlanId.FNumber 计划跟踪号（MTF 物料有值）
         private Long locationId;        // FSTOCKLOCID 仓位值组合内码（未启用仓位管理时为0/null）
         private BigDecimal baseQty;     // FBaseQty 基本单位数量
     }
@@ -190,7 +192,8 @@ public class KingdeeService {
         private String materialCode;      // FMaterialId.FNumber
         private String stockNumber;       // FStockId.FNumber 实际发料仓库
         private Long stockLocId;          // FStockLocId 仓位值组合内码(0/null=未启用仓位)
-        private String stockLocCode;      // FStockLocId.F100004.Number 子仓位编码（View 拿，ExecuteBillQuery 不给）
+        private String stockLocCode;      // 子仓位编码（View 拿，ExecuteBillQuery 不给；来源 F100002/F100003/F100004 中第一个非空的 Number）
+        private Integer stockLocLevel;    // 命中的仓位子字段等级：100004 子仓位 / 100003 库区 / 100002 主仓位（用于写回时拼 combo 键 FSTOCKLOCID__FF{level}）
         private String lotNumber;         // FLot.FNumber 发料批次
         private Long moEntryId;           // FMOEntryId 生产订单分录内码
         private String moBillNo;          // FMOBillNo
@@ -245,6 +248,7 @@ public class KingdeeService {
         private Integer ppbomEntrySeq;
         private Long locationId;        // 仓位值组合内码（启用仓位管理的仓库必传，FStockLocId）
         private String locationCode;    // 子仓位编码（combo 里 FNumber 字段）
+        private Integer locationLevel;  // 仓位子字段等级：100004/100003/100002（用于写回时拼 combo 键 FSTOCKLOCID__FF{level}）
         private String mtoNo;           // 计划跟踪号（退料单保存键名FMtoNo，取用料清单FMTONO，不一致金蝶Save拦截）
         private String entrtyMemo;      // 物料行备注（FEntrtyMemo，质检审核时填写，空值传空串）
         private String responsible;     // 责任归属（金蝶分录自定义字段 Fresponsible，质检审核时填写，空值传空串）
@@ -273,7 +277,17 @@ public class KingdeeService {
         private Long operId;            // 工序内码（FOperId，可空）
         private Long locationId;        // 仓位值组合内码（启用仓位管理的仓库必传，FStockLocId）
         private String locationCode;    // 子仓位编码（combo 里 FNumber 字段）
+        private Integer locationLevel;  // 仓位子字段等级：100004/100003/100002（用于写回时拼 combo 键 FSTOCKLOCID__FF{level}）
         private String mtoNo;           // 计划跟踪号（保存键名FMTONO，取用料清单FMTONO，不一致金蝶Save拦截）
+    }
+
+    /**
+     * 仓位编码 + 子字段等级（从 View FStockLocId 解析时，combo 键 F100002/100003/100004 哪个有值就记录哪个）
+     */
+    @Value
+    public static class StockLocInfo {
+        private final String code;   // F10000x.Number
+        private final int level;     // 100002 / 100003 / 100004，用于写回时拼 FSTOCKLOCID__FF{level}
     }
 
     // ==================================================================
@@ -526,12 +540,15 @@ public class KingdeeService {
     }
 
     /**
-     * View PRD_PickMtrl 解析子仓位编码：返回 moEntryId → F100004.Number 的映射。
-     * ExecuteBillQuery 无法输出 FStockLocId.FNumber（元数据未暴露导航属性），
-     * 必须通过 View 拿完整 JSON，子仓位编码路径 StockLocId.F100004.Number。
+     * View PRD_PickMtrl 解析仓位编码 + 子字段等级：返回 moEntryId → StockLocInfo 的映射。
+     * <p>金蝶仓位值组合 FStockLocId 内部子字段键名 F10000x 取决于该仓库启用了哪些仓位管理维度：
+     * 子仓位 F100004 / 库区 F100003 / 主仓位 F100002。按子仓位 → 库区 → 主仓位 的优先级 fallback，
+     * 取第一个非空的 Number，同时记录命中的 level，以便写回时拼正确的 combo 键 FSTOCKLOCID__FF{level}。</p>
+     * <p>ExecuteBillQuery 无法输出 FStockLocId.FNumber（元数据未暴露导航属性），
+     * 必须通过 View 拿完整 JSON。</p>
      */
-    public Map<Long, String> viewPickStockLocCodes(String pickBillNo) {
-        Map<Long, String> result = new HashMap<>();
+    public Map<Long, StockLocInfo> viewPickStockLocCodes(String pickBillNo) {
+        Map<Long, StockLocInfo> result = new HashMap<>();
         try {
             Map<String, Object> body = baseRequestBody();
             Map<String, Object> numberParam = new HashMap<>();
@@ -581,6 +598,9 @@ public class KingdeeService {
             }
             log.info("[Kingdee] View(PRD_PickMtrl,{}) 分录集合键={} 条数={}", pickBillNo, matchedKey, entries.size());
 
+            // 子字段优先级：子仓位 F100004 → 库区 F100003 → 主仓位 F100002
+            int[] LEVEL_FALLBACK = {100004, 100003, 100002};
+
             for (int i = 0; i < entries.size(); i++) {
                 JsonNode e = entries.get(i);
                 Long moEntryId = null;
@@ -592,20 +612,35 @@ public class KingdeeService {
                 }
                 JsonNode stockLoc = e.path("StockLocId");
                 String locCode = null;
+                int locLevel = 0;
                 if (!stockLoc.isMissingNode() && !stockLoc.isNull() && stockLoc.isObject()) {
-                    locCode = stockLoc.path("F100004").path("Number").asText(null);
                     if (i == 0) {
                         log.info("[Kingdee] View(PRD_PickMtrl,{}) 首条分录 StockLocId 原始: {}",
                                 pickBillNo, objectMapper.writeValueAsString(stockLoc));
                     }
+                    for (int lv : LEVEL_FALLBACK) {
+                        JsonNode sub = stockLoc.path("F" + lv);
+                        if (!sub.isMissingNode() && !sub.isNull()) {
+                            String num = sub.path("Number").asText(null);
+                            if (num != null && !num.isEmpty()) {
+                                locCode = num;
+                                locLevel = lv;
+                                break;
+                            }
+                        }
+                    }
+                    if (i == 0) {
+                        log.info("[Kingdee] View(PRD_PickMtrl,{}) 首条分录命中 F{}, locCode={}",
+                                pickBillNo, locLevel > 0 ? locLevel : "(none)", locCode);
+                    }
                 }
-                log.info("[Kingdee] View(PRD_PickMtrl,{}) 分录[{}] moEntryId={} locCode={}",
-                        pickBillNo, i, moEntryId, locCode);
-                if (moEntryId != null && locCode != null && !locCode.isEmpty()) {
-                    result.put(moEntryId, locCode);
+                log.info("[Kingdee] View(PRD_PickMtrl,{}) 分录[{}] moEntryId={} locLevel={} locCode={}",
+                        pickBillNo, i, moEntryId, locLevel, locCode);
+                if (moEntryId != null && locCode != null && !locCode.isEmpty() && locLevel > 0) {
+                    result.put(moEntryId, new StockLocInfo(locCode, locLevel));
                 }
             }
-            log.info("[Kingdee] View(PRD_PickMtrl,{}) 解析子仓位编码完整map={}", pickBillNo, result);
+            log.info("[Kingdee] View(PRD_PickMtrl,{}) 解析仓位完整map={}", pickBillNo, result);
         } catch (Exception ex) {
             log.warn("[Kingdee] View(PRD_PickMtrl,{}) 仓位解析失败: {}", pickBillNo, ex.getMessage(), ex);
         }
@@ -683,19 +718,20 @@ public class KingdeeService {
         List<StockRow> result = new ArrayList<>();
         if (materialCodes == null || materialCodes.isEmpty()) return result;
         List<JsonNode> rows = executeBillQuery("STK_Inventory",
-                "FMaterialId.FNumber,FStockOrgId.FNumber,FLot.FNumber,FStockId.FNumber,FStockId.FName,FSTOCKLOCID,FBaseQty",
+                "FMaterialId.FNumber,FStockOrgId.FNumber,FLot.FNumber,FMTONO,FStockId.FNumber,FStockId.FName,FSTOCKLOCID,FBaseQty",
                 "FMaterialId.FNumber in (" + inList(materialCodes) + ") ",
                 "FUpdateTime asc", 2000);
         for (JsonNode row : rows) {
-            if (!row.isArray() || row.size() < 7) continue;
+            if (!row.isArray() || row.size() < 8) continue;
             StockRow r = new StockRow();
             r.setMaterialCode(textOf(row.get(0)));
             r.setStockOrgNumber(textOf(row.get(1)));
             r.setLotNumber(textOf(row.get(2)));
-            r.setStockNumber(textOf(row.get(3)));
-            r.setStockName(textOf(row.get(4)));
-            r.setLocationId(longOf(row.get(5)));
-            r.setBaseQty(decimalOf(row.get(6)));
+            r.setPlanCode(textOf(row.get(3)));
+            r.setStockNumber(textOf(row.get(4)));
+            r.setStockName(textOf(row.get(5)));
+            r.setLocationId(longOf(row.get(6)));
+            r.setBaseQty(decimalOf(row.get(7)));
             result.add(r);
         }
         return result;
@@ -962,11 +998,16 @@ public class KingdeeService {
                 entry.put("FParentOwnerId", Collections.singletonMap("FNumber", stockOrgNumber));
                 entry.put("FParentMaterialId", Collections.singletonMap("FNumber", e.getProductMaterialNumber()));
                 entry.put("FWorkShopId1", Collections.singletonMap("FNumber", e.getWorkshopNumber()));
-                // 仓位（启用仓位管理的仓库必录）：仓位值组合固定键 FSTOCKLOCID__FF100004，子仓位编码 FNumber 从 View 反查 F100004.Number
+                // 仓位（启用仓位管理的仓库必录）：仓位值组合键 FSTOCKLOCID__FF{level}，
+                // level 来自 View 反查的子字段等级（100004 子仓位 / 100003 库区 / 100002 主仓位）；null 时回退 100004 兼容旧调用
                 if (e.getLocationId() != null && e.getLocationId() > 0
                         && e.getLocationCode() != null && !e.getLocationCode().isEmpty()) {
+                    int locLevel = e.getLocationLevel() != null ? e.getLocationLevel() : 100004;
+                    String comboKey = "FSTOCKLOCID__FF" + locLevel;
+                    log.info("[Kingdee] createReturnOrder 分录仓位 comboKey={}, locCode={}, locId={}",
+                            comboKey, e.getLocationCode(), e.getLocationId());
                     entry.put("FStockLocId",
-                            Collections.singletonMap("FSTOCKLOCID__FF100004",
+                            Collections.singletonMap(comboKey,
                                     Collections.singletonMap("FNumber", e.getLocationCode())));
                 }
                 // 物料行备注：金蝶生产退料单分录 FEntrtyMemo，保证字符串（空值传空串）
@@ -1073,11 +1114,16 @@ public class KingdeeService {
                 entry.put("FScrapQty", 0.0);
                 entry.put("FOptQueue", "0");
                 entry.put("FStockId", Collections.singletonMap("FNumber", e.getStockNumber()));
-                // 仓位（启用仓位管理的仓库必录）：仓位值组合固定键 FSTOCKLOCID__FF100004，子仓位编码 FNumber
+                // 仓位（启用仓位管理的仓库必录）：仓位值组合键 FSTOCKLOCID__FF{level}，
+                // level 来自 View 反查的子字段等级（100004 子仓位 / 100003 库区 / 100002 主仓位）；null 时回退 100004 兼容旧调用
                 if (e.getLocationId() != null && e.getLocationId() > 0
                         && e.getLocationCode() != null && !e.getLocationCode().isEmpty()) {
+                    int locLevel = e.getLocationLevel() != null ? e.getLocationLevel() : 100004;
+                    String comboKey = "FSTOCKLOCID__FF" + locLevel;
+                    log.info("[Kingdee] createFeedOrder 分录仓位 comboKey={}, locCode={}, locId={}",
+                            comboKey, e.getLocationCode(), e.getLocationId());
                     entry.put("FStockLocId",
-                            Collections.singletonMap("FSTOCKLOCID__FF100004",
+                            Collections.singletonMap(comboKey,
                                     Collections.singletonMap("FNumber", e.getLocationCode())));
                 }
                 entry.put("FOptPlanBillId", 0);

@@ -64,6 +64,11 @@
                 <span class="mono">{{ row.needQty?.toFixed(4) ?? '—' }}</span>
               </template>
             </el-table-column>
+            <el-table-column label="已领数量" width="110" align="right">
+              <template #default="{ row }">
+                <span class="mono text-picked">{{ row.pickedQty?.toFixed(4) ?? '0.0000' }}</span>
+              </template>
+            </el-table-column>
             <el-table-column label="叫料已推" width="110" align="right">
               <template #default="{ row }">
                 <span class="mono text-pushed">{{ row.pushedQty?.toFixed(4) ?? '0.0000' }}</span>
@@ -126,6 +131,9 @@
             <el-table-column label="物料名称" prop="materialName" min-width="220" show-overflow-tooltip />
             <el-table-column label="应发数量" width="100" align="right">
               <template #default="{ row }"><span class="mono">{{ row.needQty?.toFixed(2) ?? '—' }}</span></template>
+            </el-table-column>
+            <el-table-column label="已领数量" width="100" align="right">
+              <template #default="{ row }"><span class="mono text-picked">{{ row.pickedQty?.toFixed(2) ?? '0' }}</span></template>
             </el-table-column>
             <el-table-column label="叫料已推" width="100" align="right">
               <template #default="{ row }"><span class="mono text-pushed">{{ row.pushedQty?.toFixed(2) ?? '0' }}</span></template>
@@ -479,6 +487,28 @@ async function confirmCreate() {
   if (!submitForm.lineCode.trim()) { ElMessage.warning('请填写生产线编码'); return }
   if (taskItems.value.length === 0) { ElMessage.warning('请先加入定时任务物料'); return }
 
+  // ===== 前端超量校验，不过直接拦住创建 =====
+  // 剩余可领 = 应发 - 已领 - 叫料已推 - 已有定时承诺
+  const errs: string[] = []
+  for (const t of taskItems.value) {
+    const need = Number(t.needQty ?? 0)
+    const picked = Number(t.pickedQty ?? 0)
+    const pushed = Number(t.pushedQty ?? 0)
+    const ptTotal = Number(t.pickTaskTotalQty ?? 0)
+    const remain = Math.max(0, need - picked - pushed - ptTotal)
+    const total = Number(t._totalQty ?? 0)
+    if (total > remain) {
+      errs.push(`物料 ${t.materialCode} 定时发料总量 ${total.toFixed(2)} 超量：剩余可领 ${remain.toFixed(2)}`)
+    }
+  }
+  if (errs.length > 0) {
+    ElMessage.error({
+      message: `超量校验未通过，共 ${errs.length} 项：\n${errs.join('\n')}\n请返回修改发料总数量`,
+      duration: 8000, showClose: true,
+    } as any)
+    return
+  }
+
   submitting.value = true
   try {
     const entries: PickTaskCreateEntry[] = taskItems.value.map((p) => ({
@@ -625,6 +655,7 @@ function remainingClass(row: PpbomRow) {
 .text-danger { color: #f56c6c; font-weight: 600; }
 .text-warning { color: #e6a23c; }
 .text-pushed { color: #409eff; }
+.text-picked { color: #e6a23c; font-weight: 600; }
 .text-picktask { color: #9b59b6; }
 .text-stock { color: #67c23a; font-weight: 600; }
 

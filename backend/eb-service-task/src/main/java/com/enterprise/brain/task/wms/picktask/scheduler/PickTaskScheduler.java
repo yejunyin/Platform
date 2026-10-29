@@ -219,8 +219,12 @@ public class PickTaskScheduler {
         data.put("LineCode", task.getLineCode());
 
         List<Map<String, Object>> wmsEntries = new ArrayList<>();
-        int itemNo = 1;
         List<BigDecimal> roundQtyList = new ArrayList<>(); // 本轮各明细的实际发料量
+        Map<String, BigDecimal> qtyMap = new LinkedHashMap<>();
+        Map<String, String> unitMap = new LinkedHashMap<>();
+        Map<String, String> planMap = new LinkedHashMap<>();
+        Map<String, String> stationMap = new LinkedHashMap<>();
+        Map<String, String> whMap = new LinkedHashMap<>();
 
         for (WmsPickTaskEntry e : entries) {
             BigDecimal left = e.getTotalQty().subtract(safe(e.getSentQty()));
@@ -230,17 +234,18 @@ public class PickTaskScheduler {
                 continue;
             }
 
-            // 全局剩余防护：不能超过金蝶应发数量 - 叫料已推 - 其他定时任务承诺总量（预占）
+            // 全局剩余防护：不能超过金蝶应发数量 - 已领 - 叫料已推 - 其他定时任务承诺总量（预占）
             // 注意：pickTaskTotalQty 包含了"当前任务自己"承诺的 totalQty（entries 已在 DB 里），
             //       需要扣掉自己，否则第一轮就会被自己卡死（自己预占了自己要发的量）
             BigDecimal globalLeft = null;
             WmsPpbomRowVO vo = ppbomMap.get(e.getMaterialCode());
             if (vo != null && vo.getNeedQty() != null) {
+                BigDecimal picked = safe(vo.getPickedQty());
                 BigDecimal pushed = safe(vo.getPushedQty());
                 BigDecimal ptTotal = safe(vo.getPickTaskTotalQty());
                 // 扣掉当前 entry 自己承诺的 totalQty
                 BigDecimal ownTotal = safe(e.getTotalQty());
-                BigDecimal otherOccupied = pushed.add(ptTotal).subtract(ownTotal);
+                BigDecimal otherOccupied = picked.add(pushed).add(ptTotal).subtract(ownTotal);
                 if (otherOccupied.compareTo(BigDecimal.ZERO) < 0) {
                     otherOccupied = BigDecimal.ZERO;
                 }
@@ -262,16 +267,17 @@ public class PickTaskScheduler {
             }
             roundQtyList.add(roundQty);
 
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("ItemNo", itemNo++);
-            m.put("MaterialCode", e.getMaterialCode());
-            m.put("BatchCode", null);
-            m.put("Quantity", roundQty);
-            m.put("UnitCode", e.getUnitCode());
-            m.put("PlanCode", e.getPlanCode() != null ? e.getPlanCode() : "");
-            m.put("ProductionStationCode", e.getStationCode());
-            m.put("OutWarehouseCode", e.getWarehouseCode());
-            wmsEntries.add(m);
+            // 收集到 map 里，循环完统一 FIFO 拆分
+            qtyMap.put(e.getMaterialCode(), qtyMap.getOrDefault(e.getMaterialCode(), BigDecimal.ZERO).add(roundQty));
+            unitMap.putIfAbsent(e.getMaterialCode(), e.getUnitCode());
+            planMap.putIfAbsent(e.getMaterialCode(), e.getPlanCode() != null ? e.getPlanCode() : "");
+            stationMap.putIfAbsent(e.getMaterialCode(), e.getStationCode());
+            whMap.putIfAbsent(e.getMaterialCode(), e.getWarehouseCode());
+        }
+
+        // FIFO 批次拆分：一个批次一条 entry
+        if (!qtyMap.isEmpty()) {
+            wmsEntries = pickingService.fifoSplitWmsEntries(qtyMap, unitMap, planMap, stationMap, whMap);
         }
         data.put("Entries", wmsEntries);
 

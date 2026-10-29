@@ -212,8 +212,8 @@ public class WmsPickTaskService {
     }
 
     /**
-     * 校验定时任务 totalQty 不能超过应发数量减去叫料已推送和其他定时任务承诺总量
-     * 新建 totalQty + 叫料已推送 + 其他定时任务承诺总量 ≤ 金蝶应发数量
+     * 校验定时任务 totalQty 不能超过应发数量
+     * 已领 + 叫料已推送 + 已有定时任务承诺总量 + 本次新建 ≤ 金蝶应发数量
      *
      * 说明：定时任务 totalQty 是承诺发料量，预占额度；
      *       已有定时任务的未发部分也要计入占用。
@@ -221,7 +221,7 @@ public class WmsPickTaskService {
     private void validatePickTaskQty(WmsPickTaskCreateRequest req) {
         if (req.getEntries() == null || req.getEntries().isEmpty()) return;
 
-        // 查金蝶 PPBOM（内部已自动填充 pushedQty/pickTaskTotalQty/pickTaskSentQty）
+        // 查金蝶 PPBOM（内部已自动填充 pickedQty/pushedQty/pickTaskTotalQty/pickTaskSentQty）
         List<WmsPpbomRowVO> ppbomList = pickingService.queryPpbomByProductionNo(req.getProductionNo(), false);
         Map<String, WmsPpbomRowVO> ppbomMap = new HashMap<>();
         for (WmsPpbomRowVO vo : ppbomList) {
@@ -238,16 +238,17 @@ public class WmsPickTaskService {
                 continue;
             }
             BigDecimal needQty = safe(vo.getNeedQty());
+            BigDecimal pickedQty = safe(vo.getPickedQty());
             BigDecimal pushedQty = safe(vo.getPushedQty());
             BigDecimal ptTotal = safe(vo.getPickTaskTotalQty());
-            BigDecimal totalOccupied = pushedQty.add(ptTotal);
+            BigDecimal totalOccupied = pickedQty.add(pushedQty).add(ptTotal);
             BigDecimal newTotal = totalOccupied.add(totalQty);
             if (newTotal.compareTo(needQty) > 0) {
                 BigDecimal over = newTotal.subtract(needQty);
                 BigDecimal remaining = needQty.subtract(totalOccupied);
                 errors.add(String.format(
-                        "物料 %s 定时发料总量 %.4f 超量：金蝶应发 %.4f，叫料已推 %.4f，已有定时任务承诺 %.4f，剩余可领 %.4f，超出 %.4f",
-                        mc, totalQty, needQty, pushedQty, ptTotal,
+                        "物料 %s 定时发料总量 %.4f 超量：金蝶应发 %.4f，已领 %.4f，叫料已推 %.4f，已有定时任务承诺 %.4f，剩余可领 %.4f，超出 %.4f",
+                        mc, totalQty, needQty, pickedQty, pushedQty, ptTotal,
                         remaining.compareTo(BigDecimal.ZERO) < 0 ? BigDecimal.ZERO : remaining, over));
             }
         }

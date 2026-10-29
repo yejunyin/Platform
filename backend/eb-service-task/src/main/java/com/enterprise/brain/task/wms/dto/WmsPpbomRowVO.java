@@ -38,6 +38,9 @@ public class WmsPpbomRowVO {
     @Schema(description = "应发数量（FNeedQty2）")
     private BigDecimal needQty;
 
+    @Schema(description = "已领数量（FPickedQty，金蝶 PRD_PPBOM 累计已领）")
+    private BigDecimal pickedQty;
+
     @Schema(description = "单位编码（FUnitID2.fnumber，推 WMS UnitCode 用）")
     private String unitNumber;
 
