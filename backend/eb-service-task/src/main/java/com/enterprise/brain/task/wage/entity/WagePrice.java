@@ -11,7 +11,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
- * 单价工序资料（wage_price）：子物料 × 工序 的计件单价
+ * 单价工序资料（wage_price）：按 工序 直接定价的计件单价（不再与物料绑定）
  */
 @Data
 @TableName("wage_price")
@@ -22,12 +22,6 @@ public class WagePrice implements Serializable {
 
     @TableId
     private Long id;
-
-    @Schema(description = "子物料代码")
-    private String materialCode;
-
-    @Schema(description = "子项物料名称")
-    private String materialName;
 
     @Schema(description = "工序名称")
     private String processName;

@@ -102,7 +102,7 @@ public class WagePayStatService {
             int priced = 0, unpriced = 0;
             List<ItemCalc> calcs = new ArrayList<>();
             for (WageMaterial m : items) {
-                WagePrice price = priceService.matchPrice(m.getMaterialCode(), order.getProcessName());
+                WagePrice price = priceService.matchPrice(order.getProcessName());
                 BigDecimal subPrice = price == null ? BigDecimal.ZERO
                         : price.getUnitPrice().setScale(4, RoundingMode.HALF_UP);
                 BigDecimal subQty = m.getQty() == null ? BigDecimal.ZERO : m.getQty();

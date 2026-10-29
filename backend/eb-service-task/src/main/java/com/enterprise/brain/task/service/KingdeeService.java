@@ -190,6 +190,7 @@ public class KingdeeService {
         private String materialCode;      // FMaterialId.FNumber
         private String stockNumber;       // FStockId.FNumber 实际发料仓库
         private Long stockLocId;          // FStockLocId 仓位值组合内码(0/null=未启用仓位)
+        private String stockLocCode;      // FStockLocId.F100004.Number 子仓位编码（View 拿，ExecuteBillQuery 不给）
         private String lotNumber;         // FLot.FNumber 发料批次
         private Long moEntryId;           // FMOEntryId 生产订单分录内码
         private String moBillNo;          // FMOBillNo
@@ -243,6 +244,7 @@ public class KingdeeService {
         private Long ppbomEntryId;      // 用料清单分录内码
         private Integer ppbomEntrySeq;
         private Long locationId;        // 仓位值组合内码（启用仓位管理的仓库必传，FStockLocId）
+        private String locationCode;    // 子仓位编码（combo 里 FNumber 字段）
         private String mtoNo;           // 计划跟踪号（退料单保存键名FMtoNo，取用料清单FMTONO，不一致金蝶Save拦截）
         private String entrtyMemo;      // 物料行备注（FEntrtyMemo，质检审核时填写，空值传空串）
         private String responsible;     // 责任归属（金蝶分录自定义字段 Fresponsible，质检审核时填写，空值传空串）
@@ -270,6 +272,7 @@ public class KingdeeService {
         private Integer ppbomEntrySeq;
         private Long operId;            // 工序内码（FOperId，可空）
         private Long locationId;        // 仓位值组合内码（启用仓位管理的仓库必传，FStockLocId）
+        private String locationCode;    // 子仓位编码（combo 里 FNumber 字段）
         private String mtoNo;           // 计划跟踪号（保存键名FMTONO，取用料清单FMTONO，不一致金蝶Save拦截）
     }
 
@@ -522,6 +525,93 @@ public class KingdeeService {
         return list;
     }
 
+    /**
+     * View PRD_PickMtrl 解析子仓位编码：返回 moEntryId → F100004.Number 的映射。
+     * ExecuteBillQuery 无法输出 FStockLocId.FNumber（元数据未暴露导航属性），
+     * 必须通过 View 拿完整 JSON，子仓位编码路径 StockLocId.F100004.Number。
+     */
+    public Map<Long, String> viewPickStockLocCodes(String pickBillNo) {
+        Map<Long, String> result = new HashMap<>();
+        try {
+            Map<String, Object> body = baseRequestBody();
+            Map<String, Object> numberParam = new HashMap<>();
+            numberParam.put("Number", pickBillNo);
+            body.put("parameters", Arrays.asList("PRD_PickMtrl", numberParam));
+            String responseBody = postWithSession(VIEW_PATH, body);
+            JsonNode root = objectMapper.readTree(responseBody);
+            JsonNode resultNode = root.path("Result").path("Result");
+            if (resultNode.isMissingNode() || resultNode.isNull()) {
+                log.warn("[Kingdee] View(PRD_PickMtrl,{}) Result.Result 缺失，顶层keys: {}", pickBillNo,
+                        root.path("Result").isObject() ? root.path("Result").fieldNames().toString() : "非对象");
+                return result;
+            }
+            // 打出 resultNode 所有子键（确认分录集合键名）
+            List<String> topKeys = new ArrayList<>();
+            resultNode.fieldNames().forEachRemaining(topKeys::add);
+            log.info("[Kingdee] View(PRD_PickMtrl,{}) Result.Result keys={}", pickBillNo, topKeys);
+
+            JsonNode entries = null;
+            String matchedKey = null;
+            for (String k : topKeys) {
+                JsonNode v = resultNode.path(k);
+                if (v.isArray() && v.size() > 0 && v.get(0).isObject()
+                        && (v.get(0).has("MOEntryId") || v.get(0).has("MOEntryId_Id")
+                            || v.get(0).has("StockLocId"))) {
+                    entries = v;
+                    matchedKey = k;
+                    break;
+                }
+            }
+            if (entries == null) {
+                // 兜底：第一个数组字段
+                for (String k : topKeys) {
+                    JsonNode v = resultNode.path(k);
+                    if (v.isArray() && v.size() > 0) {
+                        entries = v;
+                        matchedKey = k;
+                        log.info("[Kingdee] View(PRD_PickMtrl,{}) 兜底命中数组键={} 首条keys={}",
+                                pickBillNo, k, v.get(0).isObject() ? v.get(0).fieldNames().toString() : "");
+                        break;
+                    }
+                }
+            }
+            if (entries == null) {
+                log.warn("[Kingdee] View(PRD_PickMtrl,{}) 未找到分录数组", pickBillNo);
+                return result;
+            }
+            log.info("[Kingdee] View(PRD_PickMtrl,{}) 分录集合键={} 条数={}", pickBillNo, matchedKey, entries.size());
+
+            for (int i = 0; i < entries.size(); i++) {
+                JsonNode e = entries.get(i);
+                Long moEntryId = null;
+                for (String k : new String[]{
+                        "MoEntryId", "MOEntryId", "MoEntryId_Id", "MOEntryId_Id",
+                        "FMOEntryId", "FMOEntryId_Id", "SourceMOEntryId", "SourceMOEntryId_Id"}) {
+                    moEntryId = longOf(e.path(k));
+                    if (moEntryId != null) break;
+                }
+                JsonNode stockLoc = e.path("StockLocId");
+                String locCode = null;
+                if (!stockLoc.isMissingNode() && !stockLoc.isNull() && stockLoc.isObject()) {
+                    locCode = stockLoc.path("F100004").path("Number").asText(null);
+                    if (i == 0) {
+                        log.info("[Kingdee] View(PRD_PickMtrl,{}) 首条分录 StockLocId 原始: {}",
+                                pickBillNo, objectMapper.writeValueAsString(stockLoc));
+                    }
+                }
+                log.info("[Kingdee] View(PRD_PickMtrl,{}) 分录[{}] moEntryId={} locCode={}",
+                        pickBillNo, i, moEntryId, locCode);
+                if (moEntryId != null && locCode != null && !locCode.isEmpty()) {
+                    result.put(moEntryId, locCode);
+                }
+            }
+            log.info("[Kingdee] View(PRD_PickMtrl,{}) 解析子仓位编码完整map={}", pickBillNo, result);
+        } catch (Exception ex) {
+            log.warn("[Kingdee] View(PRD_PickMtrl,{}) 仓位解析失败: {}", pickBillNo, ex.getMessage(), ex);
+        }
+        return result;
+    }
+
     /** 构造 'a','b','c' 形式的SQL IN列表 */
     private String inList(List<String> values) {
         StringBuilder sb = new StringBuilder();
@@ -700,6 +790,25 @@ public class KingdeeService {
      * M6：View 单据审核状态（DocumentStatus：A创建 B审核中 C已审核 D重新审核），
      * 用于重试时判断已生成单据是否已完成，避免重复建单。查询失败返回null。
      */
+    /**
+     * 原始 View 调用：返回完整 JSON 响应体字符串（调试用，看字段真实结构）
+     */
+    public String viewBillRaw(String formId, String billNo) {
+        try {
+            Map<String, Object> body = baseRequestBody();
+            Map<String, Object> numberParam = new HashMap<>();
+            numberParam.put("Number", billNo);
+            body.put("parameters", Arrays.asList(formId, numberParam));
+            String resp = postWithSession(VIEW_PATH, body);
+            log.info("[Kingdee] View RAW({},{}) 响应体: {}", formId, billNo,
+                    resp.length() > 3000 ? resp.substring(0, 3000) + "..." : resp);
+            return resp;
+        } catch (Exception e) {
+            log.warn("[Kingdee] View RAW({},{}) 失败: {}", formId, billNo, e.getMessage());
+            return null;
+        }
+    }
+
     public String viewBillDocumentStatus(String formId, String billNo) {
         try {
             Map<String, Object> body = baseRequestBody();
@@ -853,9 +962,12 @@ public class KingdeeService {
                 entry.put("FParentOwnerId", Collections.singletonMap("FNumber", stockOrgNumber));
                 entry.put("FParentMaterialId", Collections.singletonMap("FNumber", e.getProductMaterialNumber()));
                 entry.put("FWorkShopId1", Collections.singletonMap("FNumber", e.getWorkshopNumber()));
-                // 仓位（启用仓位管理的仓库必录）：传仓位值组合内码（裸数字）
-                if (e.getLocationId() != null && e.getLocationId() > 0) {
-                    entry.put("FStockLocId", e.getLocationId());
+                // 仓位（启用仓位管理的仓库必录）：仓位值组合固定键 FSTOCKLOCID__FF100004，子仓位编码 FNumber 从 View 反查 F100004.Number
+                if (e.getLocationId() != null && e.getLocationId() > 0
+                        && e.getLocationCode() != null && !e.getLocationCode().isEmpty()) {
+                    entry.put("FStockLocId",
+                            Collections.singletonMap("FSTOCKLOCID__FF100004",
+                                    Collections.singletonMap("FNumber", e.getLocationCode())));
                 }
                 // 物料行备注：金蝶生产退料单分录 FEntrtyMemo，保证字符串（空值传空串）
                 entry.put("FEntrtyMemo", e.getEntrtyMemo() == null ? "" : e.getEntrtyMemo());
@@ -961,9 +1073,12 @@ public class KingdeeService {
                 entry.put("FScrapQty", 0.0);
                 entry.put("FOptQueue", "0");
                 entry.put("FStockId", Collections.singletonMap("FNumber", e.getStockNumber()));
-                // 仓位（启用仓位管理的仓库必录）：传仓位值组合内码（裸数字）
-                if (e.getLocationId() != null && e.getLocationId() > 0) {
-                    entry.put("FStockLocId", e.getLocationId());
+                // 仓位（启用仓位管理的仓库必录）：仓位值组合固定键 FSTOCKLOCID__FF100004，子仓位编码 FNumber
+                if (e.getLocationId() != null && e.getLocationId() > 0
+                        && e.getLocationCode() != null && !e.getLocationCode().isEmpty()) {
+                    entry.put("FStockLocId",
+                            Collections.singletonMap("FSTOCKLOCID__FF100004",
+                                    Collections.singletonMap("FNumber", e.getLocationCode())));
                 }
                 entry.put("FOptPlanBillId", 0);
                 entry.put("FOptDetailId", 0);

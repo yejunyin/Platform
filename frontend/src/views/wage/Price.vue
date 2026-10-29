@@ -4,17 +4,10 @@
       <div class="industrial-panel__title">
         <span class="industrial-panel__bar" />
         单价工序资料
-        <span class="crud-tip">按「子物料代码 + 工序」匹配计件单价；生效/失效日期为空表示长期有效</span>
+        <span class="crud-tip">按「工序」直接定价；生效/失效日期为空表示长期有效</span>
       </div>
 
       <div class="toolbar">
-        <el-input
-          v-model="query.keyword"
-          placeholder="子物料代码/名称"
-          clearable
-          class="ipt kw"
-          @keyup.enter="load"
-        />
         <el-select v-model="query.processName" placeholder="工序" clearable class="ipt">
           <el-option v-for="p in processList" :key="p.id" :label="p.processName" :value="p.processName" />
         </el-select>
@@ -27,12 +20,8 @@
       </div>
 
       <el-table :data="list" v-loading="loading" border stripe class="data-table">
-        <el-table-column label="子物料代码" prop="materialCode" width="160" />
-        <el-table-column label="子项物料名称" prop="materialName" min-width="220">
-          <template #default="{ row }">{{ row.materialName || '—' }}</template>
-        </el-table-column>
-        <el-table-column label="工序" prop="processName" width="100" />
-        <el-table-column label="单价(元)" prop="unitPrice" width="110" align="right">
+        <el-table-column label="工序" prop="processName" width="140" />
+        <el-table-column label="单价(元)" prop="unitPrice" width="120" align="right">
           <template #default="{ row }">{{ fmt(row.unitPrice) }}</template>
         </el-table-column>
         <el-table-column label="生效日期" prop="effectiveDate" width="120">
@@ -54,14 +43,8 @@
         </el-table-column>
       </el-table>
 
-      <el-dialog v-model="dialog.visible" :title="dialog.isEdit ? '编辑单价' : '新增单价'" width="500px" append-to-body>
+      <el-dialog v-model="dialog.visible" :title="dialog.isEdit ? '编辑单价' : '新增单价'" width="460px" append-to-body>
         <el-form :model="form" label-width="110px">
-          <el-form-item label="子物料代码" required>
-            <el-input v-model="form.materialCode" placeholder="子项物料编码" />
-          </el-form-item>
-          <el-form-item label="子项物料名称">
-            <el-input v-model="form.materialName" />
-          </el-form-item>
           <el-form-item label="工序" required>
             <el-select v-model="form.processName" placeholder="选择工序" filterable class="full">
               <el-option v-for="p in processList" :key="p.id" :label="p.processName" :value="p.processName" />
@@ -108,11 +91,9 @@ const loading = ref(false)
 const saving = ref(false)
 const list = ref<WagePrice[]>([])
 const processList = ref<WageProcess[]>([])
-const query = reactive({ keyword: '', processName: '', status: '' })
+const query = reactive({ processName: '', status: '' })
 const dialog = reactive({ visible: false, isEdit: false, id: '' as string })
 const form = reactive({
-  materialCode: '',
-  materialName: '',
   processName: '',
   unitPrice: 0,
   effectiveDate: '' as string | undefined,
@@ -133,7 +114,6 @@ async function load() {
   loading.value = true
   try {
     const { data } = await listPrice({
-      keyword: query.keyword || undefined,
       processName: query.processName || undefined,
       status: query.status || undefined,
     })
@@ -145,8 +125,6 @@ async function load() {
 
 function openAdd() {
   Object.assign(form, {
-    materialCode: '',
-    materialName: '',
     processName: '',
     unitPrice: 0,
     effectiveDate: undefined,
@@ -160,8 +138,6 @@ function openAdd() {
 
 function openEdit(row: WagePrice) {
   Object.assign(form, {
-    materialCode: row.materialCode,
-    materialName: row.materialName || '',
     processName: row.processName,
     unitPrice: Number(row.unitPrice),
     effectiveDate: row.effectiveDate || undefined,
@@ -174,16 +150,14 @@ function openEdit(row: WagePrice) {
 }
 
 async function onSave() {
-  if (!form.materialCode.trim() || !form.processName.trim()) {
-    ElMessage.warning('请填写子物料代码并选择工序')
+  if (!form.processName.trim()) {
+    ElMessage.warning('请选择工序')
     return
   }
   saving.value = true
   try {
     await savePrice({
       id: dialog.isEdit ? dialog.id : undefined,
-      materialCode: form.materialCode.trim(),
-      materialName: form.materialName || undefined,
       processName: form.processName,
       unitPrice: form.unitPrice,
       effectiveDate: form.effectiveDate || undefined,
@@ -200,7 +174,7 @@ async function onSave() {
 
 async function onDelete(row: WagePrice) {
   await ElMessageBox.confirm(
-    `确认删除「${row.materialCode} / ${row.processName}」单价记录？`,
+    `确认删除「${row.processName}」单价记录？`,
     '删除确认',
     { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' },
   )

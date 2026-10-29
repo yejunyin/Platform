@@ -109,7 +109,6 @@
               v-if="!isAdded(row)"
               type="primary"
               size="small"
-              plain
               :disabled="Number(row.remainingQty ?? 0) <= 0"
               @click="addToPick(row)"
             >加入领料</el-button>
@@ -505,6 +504,15 @@ function remainingClass(row: PpbomRow) {
 .text-danger { color: #f56c6c; font-weight: 600; }
 .text-warning { color: #e6a23c; }
 .text-stock { color: #67c23a; font-weight: 600; }
+
+:deep(.el-button.is-disabled),
+:deep(.el-button.is-disabled:hover),
+:deep(.el-button.is-disabled:focus) {
+  background-color: #c0c4cc !important;
+  border-color: #c0c4cc !important;
+  color: #fff !important;
+}
+
 
 .send-bar {
   display: flex; gap: 14px; align-items: center;

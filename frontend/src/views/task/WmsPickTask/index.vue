@@ -99,7 +99,7 @@
               <template #default="{ row }">
                 <el-button
                   v-if="!isAdded(row)"
-                  type="primary" size="small" plain
+                  type="primary" size="small"
                   :disabled="Number(row.remainingQty ?? 0) <= 0"
                   @click="addToTask(row)"
                 >加入定时任务</el-button>
@@ -627,6 +627,14 @@ function remainingClass(row: PpbomRow) {
 .text-pushed { color: #409eff; }
 .text-picktask { color: #9b59b6; }
 .text-stock { color: #67c23a; font-weight: 600; }
+
+:deep(.el-button.is-disabled),
+:deep(.el-button.is-disabled:hover),
+:deep(.el-button.is-disabled:focus) {
+  background-color: #c0c4cc !important;
+  border-color: #c0c4cc !important;
+  color: #fff !important;
+}
 
 .submit-bar {
   padding: 20px 16px; margin-top: 10px;

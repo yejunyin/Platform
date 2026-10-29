@@ -59,7 +59,7 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
     private static final String REASON_TYPE_RETURN_REASON = "2";
 
     /** ERP退料单生成最大重试次数 */
-    private static final int ERP_MAX_ATTEMPTS = 3;
+    private static final int ERP_MAX_ATTEMPTS = 1;
 
     /** 物料行备注最大长度（金蝶生产退料单分录 FEntrtyMemo NVARCHAR(200)） */
     private static final int MEMO_MAX_LENGTH = 200;
@@ -1029,6 +1029,20 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
                 kingdeeService.queryPickStock(moEntryIds, pickMaterialCodes);
         log.info("[补退料] 申请{} 查到生产领料发料记录{}条", call.getCallNo(), pickRows.size());
 
+        // ===== View 反查子仓位编码：ExecuteBillQuery 拿不到 FStockLocId.FNumber，必须走 View =====
+        Set<String> uniquePickBills = pickRows.stream()
+                .map(KingdeeService.PickStockRow::getBillNo).collect(Collectors.toSet());
+        Map<String, Map<Long, String>> billLocCodeMap = new HashMap<>();
+        for (String billNo : uniquePickBills) {
+            billLocCodeMap.put(billNo, kingdeeService.viewPickStockLocCodes(billNo));
+        }
+        for (KingdeeService.PickStockRow r : pickRows) {
+            Map<Long, String> codes = billLocCodeMap.get(r.getBillNo());
+            if (codes != null && r.getMoEntryId() != null) {
+                r.setStockLocCode(codes.get(r.getMoEntryId()));
+            }
+        }
+
         // 退料原因 → 金蝶FReturnReason.FNumber：审核人选择的reasonType=2字典REASON_ID即金蝶编码，
         // 字典维护了ERP_CODE时优先取ERP_CODE（租户模板映射）
         String returnReasonCode = null;
@@ -1091,6 +1105,8 @@ public class MaterialReturnServiceImpl implements MaterialReturnService {
             // 仓位优先取领料单分录实际发料仓位；领料单未启用仓位(0)时回退批次匹配仓位
             retEntry.setLocationId(pick.getStockLocId() != null && pick.getStockLocId() > 0
                     ? pick.getStockLocId() : batch.getLocationId());
+            // 子仓位编码：View 反查 pickRows 里已带，兜底批次里可能存了(虽然之前没存)
+            retEntry.setLocationCode(pick.getStockLocCode());
             // 计划跟踪号透传用料清单FMTONO（方案A对齐，空值传空串由KingdeeService处理）
             retEntry.setMtoNo(ppbom.getMtoNo());
             // 物料行备注：取申请明细行FEntrtyMemo（审核时落库；retryErpOrder/重推时从DB读取，不依赖前端再次提交）

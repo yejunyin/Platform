@@ -78,14 +78,12 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UK_wage_process_code' AND
 GO
 
 -- ------------------------------------------------------------
--- 4. 单价工序资料 wage_price（子物料 × 工序 的计件单价）
+-- 4. 单价工序资料 wage_price（按 工序 直接定价的计件单价）
 -- ------------------------------------------------------------
 IF OBJECT_ID(N'wage_price', N'U') IS NULL
 CREATE TABLE [wage_price] (
     [id]             BIGINT         NOT NULL,
-    [material_code]  VARCHAR(64)    NOT NULL,             -- 子物料代码
-    [material_name]  NVARCHAR(200)  NULL,                 -- 子项物料名称
-    [process_name]   NVARCHAR(50)   NOT NULL,             -- 工序名称
+    [process_name]   NVARCHAR(50)   NOT NULL,             -- 工序名称（单价匹配键）
     [unit_price]     DECIMAL(14,4)  NOT NULL DEFAULT 0,   -- 单价（元）
     [effective_date] DATE           NULL,                 -- 生效日期
     [expiry_date]    DATE           NULL,                 -- 失效日期（NULL=长期有效）
@@ -96,8 +94,8 @@ CREATE TABLE [wage_price] (
     CONSTRAINT [PK_wage_price] PRIMARY KEY CLUSTERED ([id])
 );
 GO
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_wage_price_mat' AND object_id = OBJECT_ID('wage_price'))
-    CREATE NONCLUSTERED INDEX [IX_wage_price_mat] ON [wage_price]([material_code]);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_wage_price_proc' AND object_id = OBJECT_ID('wage_price'))
+    CREATE NONCLUSTERED INDEX [IX_wage_price_proc] ON [wage_price]([process_name]);
 GO
 
 -- ------------------------------------------------------------

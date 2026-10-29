@@ -23,6 +23,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -94,7 +95,8 @@ public class PickTaskScheduler {
                 new QueryWrapper<WmsPickTask>().eq("status", "running"));
         log.info("[定时领料] 启动恢复 running 任务数: {}", running.size());
         for (WmsPickTask task : running) {
-            scheduleNext(task, 0); // 立即执行一轮
+            // 严格按 DB 里存的 nextFireTime 计算 delay；过期则立即补跑
+            scheduleNext(task, task.getNextFireTime());
         }
     }
 
@@ -128,6 +130,20 @@ public class PickTaskScheduler {
                 finalDelay, TimeUnit.SECONDS);
         futures.put(taskId, future);
         log.info("[定时领料] taskId={} 已 schedule，delay={}s", taskId, finalDelay);
+    }
+
+    /**
+     * 按 DB 中存的 nextFireTime 精确计算 delay，保证严格按时间点触发
+     * 如果 nextFireTime 已过期（如服务重启期间错过），delay=0 立即补一次
+     */
+    public void scheduleNext(WmsPickTask task, LocalDateTime nextFireTime) {
+        long delaySec;
+        if (nextFireTime == null) {
+            delaySec = 0;
+        } else {
+            delaySec = Math.max(0, Duration.between(LocalDateTime.now(), nextFireTime).getSeconds());
+        }
+        scheduleNext(task, delaySec);
     }
 
     /**
@@ -214,14 +230,21 @@ public class PickTaskScheduler {
                 continue;
             }
 
-            // 全局剩余防护：不能超过金蝶应发数量 - 叫料已推 - 定时任务承诺总量（预占）
+            // 全局剩余防护：不能超过金蝶应发数量 - 叫料已推 - 其他定时任务承诺总量（预占）
+            // 注意：pickTaskTotalQty 包含了"当前任务自己"承诺的 totalQty（entries 已在 DB 里），
+            //       需要扣掉自己，否则第一轮就会被自己卡死（自己预占了自己要发的量）
             BigDecimal globalLeft = null;
             WmsPpbomRowVO vo = ppbomMap.get(e.getMaterialCode());
             if (vo != null && vo.getNeedQty() != null) {
                 BigDecimal pushed = safe(vo.getPushedQty());
                 BigDecimal ptTotal = safe(vo.getPickTaskTotalQty());
-                BigDecimal totalOccupied = pushed.add(ptTotal);
-                globalLeft = vo.getNeedQty().subtract(totalOccupied);
+                // 扣掉当前 entry 自己承诺的 totalQty
+                BigDecimal ownTotal = safe(e.getTotalQty());
+                BigDecimal otherOccupied = pushed.add(ptTotal).subtract(ownTotal);
+                if (otherOccupied.compareTo(BigDecimal.ZERO) < 0) {
+                    otherOccupied = BigDecimal.ZERO;
+                }
+                globalLeft = vo.getNeedQty().subtract(otherOccupied);
                 if (globalLeft.compareTo(BigDecimal.ZERO) < 0) {
                     globalLeft = BigDecimal.ZERO;
                 }
@@ -252,10 +275,16 @@ public class PickTaskScheduler {
         }
         data.put("Entries", wmsEntries);
 
-        // 全局剩余已用完，所有物料都被跳过 → 直接完成（可能被叫料抢光了额度）
+        // 全局剩余已用完，所有物料都被跳过
         if (wmsEntries.isEmpty()) {
-            log.warn("[定时领料] taskId={} 本轮所有物料全局剩余已用完，自动完成任务", taskId);
-            completeTask(task, "全局剩余已用完（可能被叫料/其他定时任务抢占），自动停止");
+            if (task.getCurrentRound() == null || task.getCurrentRound() == 0) {
+                // 第一轮就空 → 定时任务本身还没发出去过，但叫料/其他定时任务已经把额度占满了
+                String reason = "第一次调度即无可用额度：叫料已推 + 其他定时任务承诺已将金蝶应发数量占满，请检查该生产订单的全局剩余";
+                log.warn("[定时领料] taskId={} 第一轮即全局剩余为0，任务置失败: {}", taskId, reason);
+                failTask(task, reason);
+            } else {
+                completeTask(task, "全局剩余已用完（可能被叫料/其他定时任务抢占），自动停止");
+            }
             return;
         }
 
@@ -379,12 +408,10 @@ public class PickTaskScheduler {
             return;
         }
 
-        // 推送成功 → 安排下一轮
-        taskMapper.selectById(taskId); // 重新读 DB 状态
+        // 推送成功 → 按 DB 里存的 nextFireTime 精确安排下一轮
         WmsPickTask latest = taskMapper.selectById(taskId);
         if ("running".equals(latest.getStatus())) {
-            int intervalMin = latest.getIntervalSec() == null ? 1 : latest.getIntervalSec();
-            scheduleNext(latest, (long) intervalMin * 60); // scheduleNext 参数是秒，intervalMin×60
+            scheduleNext(latest, latest.getNextFireTime());
         }
     }
 
@@ -428,14 +455,11 @@ public class PickTaskScheduler {
         // 如果 status 不是 running，先更新 DB
         if (!"running".equals(task.getStatus())) {
             task.setStatus("running");
-            int intervalMin = task.getIntervalSec() == null ? 1 : task.getIntervalSec();
-            task.setNextFireTime(LocalDateTime.now().plusMinutes(intervalMin));
             taskMapper.updateById(task);
         }
         runningFlags.computeIfAbsent(task.getId(), k -> new AtomicBoolean(true)).set(true);
-        // 按间隔时间延迟首次触发，不再立即推
-        int intervalMin = task.getIntervalSec() == null ? 1 : task.getIntervalSec();
-        scheduleNext(task, (long) intervalMin * 60);
+        // 立即推第一次（创建/启动时刻触发），推完后 executeOneRound 会自动按 interval 更新 nextFireTime
+        scheduleNext(task, 0);
     }
 
     public void pauseTask(long taskId) {
@@ -456,9 +480,8 @@ public class PickTaskScheduler {
         task.setStatus("running");
         taskMapper.updateById(task);
         runningFlags.computeIfAbsent(taskId, k -> new AtomicBoolean(true)).set(true);
-        // 恢复后也按间隔时间延迟，不再立即推
-        int intervalMin = task.getIntervalSec() == null ? 1 : task.getIntervalSec();
-        scheduleNext(task, (long) intervalMin * 60);
+        // 恢复后立即推一次，推完后按 interval 自动安排后续
+        scheduleNext(task, 0);
         log.info("[定时领料] taskId={} 已恢复", taskId);
     }
 

@@ -53,8 +53,6 @@ export interface WageProcess {
 /** 单价工序资料 */
 export interface WagePrice {
   id: string
-  materialCode: string
-  materialName?: string
   processName: string
   unitPrice: number
   effectiveDate?: string
