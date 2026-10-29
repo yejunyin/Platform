@@ -234,34 +234,17 @@ public class PickTaskScheduler {
                 continue;
             }
 
-            // 全局剩余防护：不能超过金蝶应发数量 - 已领 - 叫料已推 - 其他定时任务承诺总量（预占）
-            // 注意：pickTaskTotalQty 包含了"当前任务自己"承诺的 totalQty（entries 已在 DB 里），
-            //       需要扣掉自己，否则第一轮就会被自己卡死（自己预占了自己要发的量）
-            BigDecimal globalLeft = null;
-            WmsPpbomRowVO vo = ppbomMap.get(e.getMaterialCode());
-            if (vo != null && vo.getNeedQty() != null) {
-                BigDecimal picked = safe(vo.getPickedQty());
-                BigDecimal pushed = safe(vo.getPushedQty());
-                BigDecimal ptTotal = safe(vo.getPickTaskTotalQty());
-                // 扣掉当前 entry 自己承诺的 totalQty
-                BigDecimal ownTotal = safe(e.getTotalQty());
-                BigDecimal otherOccupied = picked.add(pushed).add(ptTotal).subtract(ownTotal);
-                if (otherOccupied.compareTo(BigDecimal.ZERO) < 0) {
-                    otherOccupied = BigDecimal.ZERO;
-                }
-                globalLeft = vo.getNeedQty().subtract(otherOccupied);
-                if (globalLeft.compareTo(BigDecimal.ZERO) < 0) {
-                    globalLeft = BigDecimal.ZERO;
-                }
-            }
+            // [临时关闭] 全局剩余防护（金蝶应发 - 已领 - 叫料已推 - 其他定时任务承诺）
+            // 放开：只按内部剩余 × 每箱数量推送，不做应发数量上限校验
+            // BigDecimal globalLeft = null;
+            // WmsPpbomRowVO vo = ppbomMap.get(e.getMaterialCode());
+            // if (vo != null && vo.getNeedQty() != null) { ... }
 
-            // 取三者最小：内部剩余、每箱数量、全局剩余
             BigDecimal roundQty = left.min(e.getPerBoxQty());
-            if (globalLeft != null) {
-                roundQty = roundQty.min(globalLeft);
-            }
+            // if (globalLeft != null) {
+            //     roundQty = roundQty.min(globalLeft);
+            // }
             if (roundQty.compareTo(BigDecimal.ZERO) <= 0) {
-                // 全局剩余已用完（可能被叫料超了），跳过本轮
                 roundQtyList.add(BigDecimal.ZERO);
                 continue;
             }
@@ -281,18 +264,8 @@ public class PickTaskScheduler {
         }
         data.put("Entries", wmsEntries);
 
-        // 全局剩余已用完，所有物料都被跳过
-        if (wmsEntries.isEmpty()) {
-            if (task.getCurrentRound() == null || task.getCurrentRound() == 0) {
-                // 第一轮就空 → 定时任务本身还没发出去过，但叫料/其他定时任务已经把额度占满了
-                String reason = "第一次调度即无可用额度：叫料已推 + 其他定时任务承诺已将金蝶应发数量占满，请检查该生产订单的全局剩余";
-                log.warn("[定时领料] taskId={} 第一轮即全局剩余为0，任务置失败: {}", taskId, reason);
-                failTask(task, reason);
-            } else {
-                completeTask(task, "全局剩余已用完（可能被叫料/其他定时任务抢占），自动停止");
-            }
-            return;
-        }
+        // [临时关闭] 全局剩余用完判断
+        // if (wmsEntries.isEmpty()) { failTask/completeTask ... return; }
 
         log.info("[定时领料] taskId={} round={} billNo={} 物料行数={}",
                 taskId, task.getCurrentRound() + 1, billNo, wmsEntries.size());

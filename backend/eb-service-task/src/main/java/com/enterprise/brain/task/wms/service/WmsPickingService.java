@@ -663,18 +663,30 @@ public class WmsPickingService {
             allStocks = new ArrayList<>();
         }
 
-        // 只取发料仓库（优先用 entries 里的 OutWarehouseCode，默认 2010）
+        // [临时放开] 原来只过滤发料仓库 2010，现在放开全仓库批次都能用
+        // 原因：金蝶 FStockId.FNumber 编码可能不是 2010，过滤后全空
+        // Map<String, List<StockRow>> stockByMaterial = allStocks.stream()
+        //         .filter(s -> firstWarehouse.equals(s.getStockNumber()))
+        //         .collect(Collectors.groupingBy(StockRow::getMaterialCode, LinkedHashMap::new, Collectors.toList()));
         Map<String, List<StockRow>> stockByMaterial = allStocks.stream()
-                .filter(s -> firstWarehouse.equals(s.getStockNumber()))
                 .collect(Collectors.groupingBy(StockRow::getMaterialCode, LinkedHashMap::new, Collectors.toList()));
 
-        log.info("[WMS叫料] FIFO 批次拆分 materialCount={} stockRows={} (warehouse={})",
-                materialCodes.size(), allStocks.size(), firstWarehouse);
+        // 打印各仓库批次分布，排查用
+        Map<String, Long> warehouseCount = allStocks.stream()
+                .collect(Collectors.groupingBy(StockRow::getStockNumber, Collectors.counting()));
+        log.info("[WMS叫料] FIFO 金蝶批次分布(仓库→行数): {}", warehouseCount);
+
+        log.info("[WMS叫料] FIFO 批次拆分 materialCount={} stockRows={} (warehouse={}) qtyMap={}",
+                materialCodes.size(), allStocks.size(), firstWarehouse, materialQtyMap);
 
         int itemNo = 1;
         for (String materialCode : materialCodes) {
             BigDecimal need = safe(materialQtyMap.get(materialCode));
-            if (need.compareTo(BigDecimal.ZERO) <= 0) continue;
+            log.info("[WMS叫料] FIFO 物料={} 需要发={}", materialCode, need);
+            if (need.compareTo(BigDecimal.ZERO) <= 0) {
+                log.warn("[WMS叫料] FIFO 物料={} need=0 跳过", materialCode);
+                continue;
+            }
 
             List<StockRow> batches = stockByMaterial.getOrDefault(materialCode, new ArrayList<>());
             BigDecimal remaining = need;

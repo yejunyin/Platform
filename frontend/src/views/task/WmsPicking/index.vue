@@ -114,7 +114,7 @@
               v-if="!isAdded(row)"
               type="primary"
               size="small"
-              :disabled="Number(row.remainingQty ?? 0) <= 0"
+              :disabled="Number(row.remainingQty ?? 0) <= -10000"
               @click="addToPick(row)"
             >加入领料</el-button>
             <el-tag v-else type="success" size="small">已加入</el-tag>
