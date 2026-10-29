@@ -151,7 +151,7 @@
                 <el-input-number
                   v-model="row._totalQty"
                   :min="0.01"
-                  :max="Number(row.remainingQty ?? row.needQty ?? 99999)"
+                  :max="999999"
                   :precision="2"
                   size="small"
                   controls-position="right"

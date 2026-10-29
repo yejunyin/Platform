@@ -168,7 +168,7 @@
             <el-input-number
               v-model="row._pickQty"
               :min="0"
-              :max="Number(row.remainingQty ?? row.needQty ?? 99999)"
+              :max="999999"
               :precision="4"
               size="small"
               controls-position="right"
@@ -378,7 +378,7 @@ function isAdded(row: PpbomRow) {
 }
 function addToPick(row: PpbomRow) {
   if (isAdded(row)) return
-  pickingItems.value.push({ ...row, _pickQty: Number(row.remainingQty ?? row.needQty ?? 0) })
+  pickingItems.value.push({ ...row, _pickQty: Number(row.needQty ?? 0) })
 }
 function removePick(i: number) {
   pickingItems.value.splice(i, 1)
