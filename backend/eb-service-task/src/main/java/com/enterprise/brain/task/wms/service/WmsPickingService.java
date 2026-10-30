@@ -142,8 +142,55 @@ public class WmsPickingService {
             if (fillStock) {
                 fillImmediateStock(result);
             }
+            fillBoxStandardQty(result);
         }
         return result;
+    }
+
+    /**
+     * 查金蝶物料基本信息（BD_MATERIAL），按物料编码取 FBoxStandardQty（标准装箱数量）
+     * 作为前端"单次发料数量"的默认值
+     */
+    private void fillBoxStandardQty(List<WmsPpbomRowVO> ppbomRows) {
+        List<String> materialCodes = ppbomRows.stream()
+                .map(WmsPpbomRowVO::getMaterialCode)
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .distinct()
+                .collect(Collectors.toList());
+        if (materialCodes.isEmpty()) return;
+
+        // BD_MATERIAL 基础资料 按 FNumber 查 FBoxStandardQty
+        StringBuilder inClause = new StringBuilder();
+        for (int i = 0; i < materialCodes.size(); i++) {
+            if (i > 0) inClause.append(',');
+            inClause.append('\'').append(materialCodes.get(i).replace("'", "''")).append('\'');
+        }
+        String filter = "FNumber in (" + inClause + ")";
+
+        Map<String, BigDecimal> boxMap = new HashMap<>();
+        try {
+            List<JsonNode> rows = kingdeeService.executeBillQuery("BD_MATERIAL",
+                    "FNumber,FBoxStandardQty",
+                    filter, null, materialCodes.size());
+            for (JsonNode row : rows) {
+                if (!row.isArray() || row.size() < 2) continue;
+                String mc = kingdeeService.textOf(row.get(0));
+                BigDecimal qty = kingdeeService.decimalOf(row.get(1));
+                if (mc != null && qty != null && qty.compareTo(BigDecimal.ZERO) > 0) {
+                    boxMap.put(mc.trim(), qty);
+                }
+            }
+            log.info("[WMS叫料] 查金蝶 BD_MATERIAL FBoxStandardQty 请求物料={} 有标准装箱数={}",
+                    materialCodes.size(), boxMap.size());
+        } catch (Exception e) {
+            log.warn("[WMS叫料] 查 BD_MATERIAL FBoxStandardQty 失败，跳过填充: {}", e.getMessage());
+        }
+
+        for (WmsPpbomRowVO vo : ppbomRows) {
+            vo.setBoxStandardQty(boxMap.getOrDefault(vo.getMaterialCode(), BigDecimal.ONE));
+        }
     }
 
     /**
@@ -240,8 +287,8 @@ public class WmsPickingService {
             BigDecimal ptSent = pickTaskSentMap.getOrDefault(mc, BigDecimal.ZERO);
             BigDecimal need = vo.getNeedQty() != null ? vo.getNeedQty() : BigDecimal.ZERO;
             BigDecimal picked = vo.getPickedQty() != null ? vo.getPickedQty() : BigDecimal.ZERO;
-            // remaining = 应发 - 已领 - 叫料已推 - 定时任务承诺总量
-            BigDecimal remaining = need.subtract(picked).subtract(pushed).subtract(ptTotal);
+            // remaining = 应发 - 叫料已推 - 定时任务承诺总量（不扣减已领数量）
+            BigDecimal remaining = need.subtract(pushed).subtract(ptTotal);
             if (remaining.compareTo(BigDecimal.ZERO) < 0) {
                 remaining = BigDecimal.ZERO;
             }

@@ -69,4 +69,7 @@ public class WmsPpbomRowVO {
 
     @Schema(description = "即时库存数量（金蝶 STK_Inventory，FStockId.FNumber='2010' 仓库）")
     private BigDecimal immediateStockQty;
+
+    @Schema(description = "金蝶物料基本信息 标准装箱数量（BD_MATERIAL.FBoxStandardQty，默认单次发料数量）")
+    private BigDecimal boxStandardQty;
 }

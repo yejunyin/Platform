@@ -61,6 +61,10 @@
             <el-icon><Timer /></el-icon>
             <template #title>定时领料任务</template>
           </el-menu-item>
+          <el-menu-item index="/task/wms-one-click-pick">
+            <el-icon><Lightning /></el-icon>
+            <template #title>一键领料</template>
+          </el-menu-item>
         </el-sub-menu>
         <el-sub-menu index="/qms">
           <template #title>
@@ -227,7 +231,7 @@ import {
   Cpu, House, Tickets, Clock, Finished, DataAnalysis,
   Bell, User, ArrowDown, SwitchButton, Expand, Fold,
   CircleCheck, Box, Monitor, Files, WarningFilled, TrendCharts,
-  Money, DocumentChecked, Wallet, UserFilled, PriceTag, SetUp, Van, Timer
+  Money, DocumentChecked, Wallet, UserFilled, PriceTag, SetUp, Van, Timer, Lightning
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 

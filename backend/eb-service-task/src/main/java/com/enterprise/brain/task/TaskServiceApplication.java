@@ -10,7 +10,7 @@ import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
  */
 @SpringBootApplication(scanBasePackages = {"com.enterprise.brain"})
 @EnableDiscoveryClient
-@MapperScan({"com.enterprise.brain.task.mapper", "com.enterprise.brain.task.wage.mapper", "com.enterprise.brain.task.wms.mapper", "com.enterprise.brain.task.wms.picktask.mapper"})
+@MapperScan({"com.enterprise.brain.task.mapper", "com.enterprise.brain.task.wage.mapper", "com.enterprise.brain.task.wms.mapper", "com.enterprise.brain.task.wms.picktask.mapper", "com.enterprise.brain.task.wms.oneclickpick.mapper"})
 public class TaskServiceApplication {
 
     public static void main(String[] args) {

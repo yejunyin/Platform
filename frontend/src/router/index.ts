@@ -64,6 +64,12 @@ const routes: RouteRecordRaw[] = [
             component: () => import('@/views/task/WmsPickTask/index.vue'),
             meta: { title: '定时领料任务', icon: 'Timer' },
           },
+          {
+            path: 'wms-one-click-pick',
+            name: 'TaskWmsOneClickPick',
+            component: () => import('@/views/task/WmsOneClickPick/index.vue'),
+            meta: { title: '一键领料', icon: 'Lightning' },
+          },
         ],
       },
       {

@@ -455,7 +455,7 @@ function addToTask(row: PpbomRow) {
   taskItems.value.push({
     ...row,
     _totalQty: Number(row.remainingQty ?? row.needQty ?? 0),
-    _perBox: 1, // 默认单次 1
+    _perBox: Number(row.boxStandardQty ?? 1), // 默认取金蝶 FBoxStandardQty
   })
 }
 function removeFromTask(i: number) { taskItems.value.splice(i, 1) }
