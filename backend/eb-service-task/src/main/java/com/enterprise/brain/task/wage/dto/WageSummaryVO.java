@@ -36,7 +36,10 @@ public class WageSummaryVO {
     @Schema(description = "计件金额合计（个人金额求和）")
     private BigDecimal pieceAmount;
 
-    @Schema(description = "工资表审核状态：未生成/待审核/已审核/已驳回")
+    @Schema(description = "true=本行来自已复核明细（参与工资审核）；false=未复核明细（待复核）")
+    private Boolean reviewed;
+
+    @Schema(description = "工资表审核状态：待复核/未生成/待审核/已审核/已驳回")
     private String auditStatus;
 
     @Schema(description = "工资单号 WG{YYYYMM}-{工号}")

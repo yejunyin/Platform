@@ -27,8 +27,9 @@ public class WagePayStatController {
     @GetMapping
     public Result<List<WagePayStat>> list(@RequestParam(required = false) String month,
                                           @RequestParam(required = false) Long groupId,
-                                          @RequestParam(required = false) String keyword) {
-        return Result.success(payStatService.list(month, groupId, keyword));
+                                          @RequestParam(required = false) String keyword,
+                                          @RequestParam(required = false) String reviewStatus) {
+        return Result.success(payStatService.list(month, groupId, keyword, reviewStatus));
     }
 
     @GetMapping("/months")

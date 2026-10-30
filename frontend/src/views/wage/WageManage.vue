@@ -18,6 +18,7 @@
         />
         <el-input v-model="query.keyword" placeholder="姓名/工号/小组/工种" clearable class="ipt kw" @keyup.enter="load" />
         <el-select v-model="query.auditStatus" placeholder="审核状态" clearable class="ipt">
+          <el-option label="待复核" value="待复核" />
           <el-option label="未生成" value="未生成" />
           <el-option label="待审核" value="待审核" />
           <el-option label="已审核" value="已审核" />
@@ -55,13 +56,13 @@
             <el-button
               link
               type="success"
-              :disabled="row.auditStatus === '已审核'"
+              :disabled="row.auditStatus === '已审核' || row.auditStatus === '待复核'"
               @click="onAudit(row as WageSummary, true)"
             >审核</el-button>
             <el-button
               link
               type="danger"
-              :disabled="row.auditStatus === '已审核'"
+              :disabled="row.auditStatus === '已审核' || row.auditStatus === '待复核'"
               @click="onAudit(row as WageSummary, false)"
             >驳回</el-button>
           </template>
@@ -99,6 +100,7 @@ function auditClass(s: string) {
   if (s === '已审核') return 'aud-ok'
   if (s === '已驳回') return 'aud-reject'
   if (s === '待审核') return 'aud-wait'
+  if (s === '待复核') return 'aud-review'
   return 'aud-none'
 }
 
@@ -221,5 +223,10 @@ async function onBatchAudit() {
 .aud-none {
   color: $text-secondary;
   border-color: $border-light;
+}
+.aud-review {
+  color: #909399;
+  border-color: #dcdfe6;
+  background: rgba(144, 147, 153, 0.08);
 }
 </style>

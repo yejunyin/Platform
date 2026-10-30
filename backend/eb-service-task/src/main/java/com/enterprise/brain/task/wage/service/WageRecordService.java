@@ -43,12 +43,14 @@ public class WageRecordService {
         String m = month == null || month.trim().isEmpty() ? null : month.trim();
         String aud = auditStatus == null || auditStatus.trim().isEmpty() ? null : auditStatus.trim();
 
-        List<WagePayStat> rows = payStatMapper.selectStatList(m, null, null);
+        // 取全部明细（已复核 + 未复核），在内存中按复核状态拆分聚合
+        List<WagePayStat> rows = payStatMapper.selectStatList(m, null, null, null);
 
-        // 按 月份 + 工号 归并，保持月份插入顺序
+        // 按 月份 + 工号 + 是否已复核 归并，保持月份插入顺序
         Map<String, WageSummaryVO> map = new LinkedHashMap<>();
         for (WagePayStat r : rows) {
-            String key = r.getWageMonth() + "|" + r.getStaffNo();
+            boolean reviewed = r.getReviewer() != null;
+            String key = r.getWageMonth() + "|" + r.getStaffNo() + "|" + (reviewed ? "R" : "U");
             WageSummaryVO vo = map.computeIfAbsent(key, k -> {
                 WageSummaryVO v = new WageSummaryVO();
                 v.setWageMonth(r.getWageMonth());
@@ -57,6 +59,7 @@ public class WageRecordService {
                 v.setGroupId(r.getGroupId());
                 v.setGroupName(r.getGroupName());
                 v.setJobType(r.getJobType());
+                v.setReviewed(reviewed);
                 v.setDetailCount(0);
                 v.setPieceAmount(BigDecimal.ZERO);
                 return v;
@@ -77,9 +80,15 @@ public class WageRecordService {
 
         List<WageSummaryVO> list = new ArrayList<>(map.values());
         for (WageSummaryVO vo : list) {
-            vo.setWageNo(wageNoOf(vo.getWageMonth(), vo.getStaffNo()));
-            WageRecord rec = recordMapper.selectByWageNo(vo.getWageNo());
-            vo.setAuditStatus(rec == null ? "未生成" : rec.getAuditStatus());
+            if (Boolean.TRUE.equals(vo.getReviewed())) {
+                vo.setWageNo(wageNoOf(vo.getWageMonth(), vo.getStaffNo()));
+                WageRecord rec = recordMapper.selectByWageNo(vo.getWageNo());
+                vo.setAuditStatus(rec == null ? "未生成" : rec.getAuditStatus());
+            } else {
+                // 未复核明细聚合行：不进入工资审核流程
+                vo.setAuditStatus("待复核");
+                vo.setWageNo(null);
+            }
         }
 
         List<WageSummaryVO> filtered = new ArrayList<>();
@@ -93,8 +102,11 @@ public class WageRecordService {
             }
             filtered.add(vo);
         }
-        filtered.sort(Comparator.comparing(WageSummaryVO::getWageMonth).reversed()
-                .thenComparing(WageSummaryVO::getStaffNo));
+        // 排序：月份倒序 → 工号 → 已复核行在前
+        filtered.sort(Comparator
+                .comparing(WageSummaryVO::getWageMonth).reversed()
+                .thenComparing(WageSummaryVO::getStaffNo)
+                .thenComparing(Comparator.comparing(WageSummaryVO::getReviewed).reversed()));
         return filtered;
     }
 
@@ -107,9 +119,11 @@ public class WageRecordService {
             throw new BusinessException("缺少月份或工号");
         }
         WageSummaryVO vo = summary(req.getMonth(), req.getStaffNo(), null).stream()
-                .filter(v -> req.getMonth().equals(v.getWageMonth()) && req.getStaffNo().equals(v.getStaffNo()))
+                .filter(v -> req.getMonth().equals(v.getWageMonth())
+                        && req.getStaffNo().equals(v.getStaffNo())
+                        && Boolean.TRUE.equals(v.getReviewed()))
                 .findFirst()
-                .orElseThrow(() -> new BusinessException("该月份/工号暂无计件明细，无法审核"));
+                .orElseThrow(() -> new BusinessException("该月份/工号无已复核的计件明细，无法审核"));
         WageRecord rec = ensureRecord(vo);
         boolean approved = !Boolean.FALSE.equals(req.getApproved());
         if (approved) {
@@ -125,7 +139,7 @@ public class WageRecordService {
     }
 
     /**
-     * 批量审核通过（当前筛选范围内非「已审核」汇总行）
+     * 批量审核通过（当前筛选范围内已复核汇总行，跳过"待复核"行和"已审核"行）
      * @return 审核条数
      */
     @Transactional(rollbackFor = Exception.class)
@@ -133,9 +147,8 @@ public class WageRecordService {
         List<WageSummaryVO> rows = summary(req.getMonth(), req.getKeyword(), req.getAuditStatus());
         int n = 0;
         for (WageSummaryVO vo : rows) {
-            if ("已审核".equals(vo.getAuditStatus())) {
-                continue;
-            }
+            if (!Boolean.TRUE.equals(vo.getReviewed())) continue;   // 跳过未复核聚合行
+            if ("已审核".equals(vo.getAuditStatus())) continue;
             WageRecord rec = ensureRecord(vo);
             rec.setAuditStatus("已审核");
             rec.setAuditor(req.getAuditor());

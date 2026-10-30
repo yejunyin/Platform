@@ -13,7 +13,13 @@ import java.util.List;
 public interface WagePayStatMapper extends BaseMapper<WagePayStat> {
 
     /**
-     * 重新计算前物理清空（明细为系统生成数据，不保留逻辑删除垃圾）
+     * 重新计算前物理清空（仅清除未复核行，已复核的保留，避免覆盖复核人/复核时间）
+     */
+    @Delete("DELETE FROM wage_pay_stat WHERE reviewer IS NULL")
+    int deleteUnreviewed();
+
+    /**
+     * 全表物理清空（仅在彻底重置工资体系时使用，慎用）
      */
     @Delete("DELETE FROM wage_pay_stat")
     int deleteAllPhysical();
@@ -36,9 +42,12 @@ public interface WagePayStatMapper extends BaseMapper<WagePayStat> {
             "       OR task_no LIKE '%' + #{keyword} + '%' OR product_name LIKE '%' + #{keyword} + '%' " +
             "       OR sub_material_name LIKE '%' + #{keyword} + '%' OR job_type LIKE '%' + #{keyword} + '%') " +
             "</if>" +
+            "<if test='reviewStatus != null and reviewStatus == \"reviewed\"'> AND reviewer IS NOT NULL </if>" +
+            "<if test='reviewStatus != null and reviewStatus == \"unreviewed\"'> AND reviewer IS NULL </if>" +
             "ORDER BY wage_month DESC, group_name, staff_name" +
             "</script>")
     List<WagePayStat> selectStatList(@Param("month") String month,
                                      @Param("groupId") Long groupId,
-                                     @Param("keyword") String keyword);
+                                     @Param("keyword") String keyword,
+                                     @Param("reviewStatus") String reviewStatus);
 }

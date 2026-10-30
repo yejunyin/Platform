@@ -136,8 +136,10 @@ export interface WageSummary {
   jobType?: string
   detailCount: number
   pieceAmount: number
+  /** true=本行来自已复核明细（参与工资审核）；false=未复核明细（待复核） */
+  reviewed?: boolean
   auditStatus: string
-  wageNo: string
+  wageNo?: string
 }
 
 /** 后端内存分页结果 */

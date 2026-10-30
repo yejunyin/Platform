@@ -8,6 +8,11 @@
       </div>
 
       <div class="toolbar">
+        <el-select v-model="query.reviewStatus" placeholder="复核状态" class="ipt" @change="load">
+          <el-option label="未复核" value="unreviewed" />
+          <el-option label="已复核" value="reviewed" />
+          <el-option label="全部" value="" />
+        </el-select>
         <el-date-picker
           v-model="query.month"
           type="month"
@@ -202,7 +207,7 @@ const rows = ref<WagePayStat[]>([])
 const groups = ref<WageGroup[]>([])
 const pageNum = ref(1)
 const pageSize = ref(50)
-const query = reactive({ month: '', groupId: undefined as string | undefined, keyword: '' })
+const query = reactive({ month: '', groupId: undefined as string | undefined, keyword: '', reviewStatus: 'unreviewed' as '' | 'reviewed' | 'unreviewed' })
 
 const selected = reactive(new Set<number>())
 
@@ -242,6 +247,7 @@ async function load() {
       month: query.month || undefined,
       groupId: query.groupId,
       keyword: query.keyword || undefined,
+      reviewStatus: query.reviewStatus || undefined,
     })
     rows.value = data || []
   } finally {

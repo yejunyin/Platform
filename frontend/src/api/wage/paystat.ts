@@ -7,6 +7,8 @@ export interface PayStatQuery {
   month?: string
   groupId?: string
   keyword?: string
+  /** reviewed=已复核, unreviewed=未复核, 不传=全部 */
+  reviewStatus?: 'reviewed' | 'unreviewed'
 }
 
 export function listPayStat(params?: PayStatQuery) {

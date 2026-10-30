@@ -48,10 +48,12 @@ public class WagePayStatService {
     @Resource
     private WagePriceService priceService;
 
-    public List<WagePayStat> list(String month, Long groupId, String keyword) {
+    public List<WagePayStat> list(String month, Long groupId, String keyword, String reviewStatus) {
         String kw = keyword == null ? null : keyword.trim();
         if (kw != null && kw.isEmpty()) kw = null;
-        return payStatMapper.selectStatList(trimNull(month), groupId, kw);
+        String rs = trimNull(reviewStatus);
+        if (rs != null && !"reviewed".equals(rs) && !"unreviewed".equals(rs)) rs = null;
+        return payStatMapper.selectStatList(trimNull(month), groupId, kw, rs);
     }
 
     public List<String> months() {
@@ -59,12 +61,14 @@ public class WagePayStatService {
     }
 
     /**
-     * 重新计算：物理清空旧明细，按 wage_material 中 开工/完工 状态的明细重新生成
+     * 重新计算：仅清除未复核行，按 wage_material 中 开工/完工 状态的明细重新生成
+     * <p>已复核行不动，避免覆盖 reviewer/review_time 等人工复核信息</p>
      * @return 生成明细条数
      */
     @Transactional(rollbackFor = Exception.class)
     public int recalc(String operator) {
-        payStatMapper.deleteAllPhysical();
+        int cleared = payStatMapper.deleteUnreviewed();
+        log.info("[工资核算] recalc：清除未复核明细 {} 条", cleared);
 
         // 从 wage_material 取所有"开工/完工"且有 startTime + groupId 的明细
         List<WageMaterial> materials = materialMapper.selectList(
