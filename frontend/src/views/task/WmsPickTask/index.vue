@@ -1,8 +1,8 @@
 <template>
   <div class="wms-pick-task-page">
     <el-tabs v-model="activeTab" class="main-tabs">
-      <!-- ==================== Tab 1: 新建任务 ==================== -->
-      <el-tab-pane label="新建任务" name="create">
+      <!-- ==================== Tab 1: 定时领料操作 ==================== -->
+      <el-tab-pane label="定时领料操作" name="create">
         <!-- 查询栏 -->
         <el-card class="panel search-panel" shadow="never">
           <div class="search-bar">
@@ -100,7 +100,7 @@
                 <span class="mono text-stock">{{ row.immediateStockQty?.toFixed(4) ?? '0.0000' }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="140" fixed="right">
+            <el-table-column label="操作" width="200" fixed="right">
               <template #default="{ row }">
                 <el-button
                   v-if="!isAdded(row)"
@@ -109,6 +109,14 @@
                   @click="addToTask(row)"
                 >加入定时任务</el-button>
                 <el-tag v-else type="success" size="small">已加入</el-tag>
+                <el-button
+                  type="danger"
+                  size="small"
+                  link
+                  style="margin-left:6px"
+                  :loading="clearingMaterial === row.materialCode"
+                  @click="handleClear(currentProdNo, row.materialCode!, row.materialName)"
+                >清除</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -122,7 +130,20 @@
                 定时任务物料
                 <el-tag size="small" type="warning" style="margin-left:8px">{{ taskItems.length }} 行</el-tag>
               </span>
-              <el-button type="danger" size="small" plain @click="taskItems = []">清空全部</el-button>
+              <div class="panel-header-right">
+                <span class="batch-label">批量工位</span>
+                <el-select
+                  v-model="batchStation"
+                  placeholder="统一改工位"
+                  clearable
+                  size="small"
+                  style="width:140px;margin-right:12px"
+                  @change="applyBatchStation"
+                >
+                  <el-option v-for="s in STATION_OPTIONS" :key="s" :value="s" :label="s" />
+                </el-select>
+                <el-button type="danger" size="small" plain @click="taskItems = []">清空全部</el-button>
+              </div>
             </div>
           </template>
           <el-table :data="taskItems" border stripe>
@@ -131,20 +152,6 @@
             <el-table-column label="物料名称" prop="materialName" min-width="220" show-overflow-tooltip />
             <el-table-column label="应发数量" width="100" align="right">
               <template #default="{ row }"><span class="mono">{{ row.needQty?.toFixed(2) ?? '—' }}</span></template>
-            </el-table-column>
-            <el-table-column label="已领数量" width="100" align="right">
-              <template #default="{ row }"><span class="mono text-picked">{{ row.pickedQty?.toFixed(2) ?? '0' }}</span></template>
-            </el-table-column>
-            <el-table-column label="叫料已推" width="100" align="right">
-              <template #default="{ row }"><span class="mono text-pushed">{{ row.pushedQty?.toFixed(2) ?? '0' }}</span></template>
-            </el-table-column>
-            <el-table-column label="已有定时承诺" width="110" align="right">
-              <template #default="{ row }"><span class="mono text-picktask">{{ row.pickTaskTotalQty?.toFixed(2) ?? '0' }}</span></template>
-            </el-table-column>
-            <el-table-column label="剩余可领" width="110" align="right">
-              <template #default="{ row }">
-                <span class="mono" :class="remainingClass(row)">{{ row.remainingQty?.toFixed(2) ?? row.needQty?.toFixed(2) ?? '—' }}</span>
-              </template>
             </el-table-column>
             <el-table-column label="发料总数量" width="150" align="right">
               <template #default="{ row }">
@@ -176,10 +183,16 @@
                 <el-tag size="small" type="info">{{ calcRounds(row._totalQty, row._perBox) }} 次</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="单位" prop="unitName" width="80" />
             <el-table-column label="计划跟踪号" prop="planCode" width="160">
               <template #default="{ row }">
                 <span class="mono">{{ row.planCode || '—' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="工位" width="130">
+              <template #default="{ row }">
+                <el-select v-model="row._stationCode" size="small" style="width:110px">
+                  <el-option v-for="s in STATION_OPTIONS" :key="s" :value="s" :label="s" />
+                </el-select>
               </template>
             </el-table-column>
             <el-table-column label="发料仓库" prop="pickStock" width="140">
@@ -236,8 +249,8 @@
         />
       </el-tab-pane>
 
-      <!-- ==================== Tab 2: 任务列表 ==================== -->
-      <el-tab-pane label="任务列表" name="list">
+      <!-- ==================== Tab 2: 历史记录 ==================== -->
+      <el-tab-pane label="历史记录" name="list">
         <el-card class="panel search-panel" shadow="never">
           <div class="search-bar">
             <el-input v-model="listProdNo" placeholder="生产订单号" clearable style="width:260px" />
@@ -254,7 +267,7 @@
           </div>
         </el-card>
 
-        <el-card v-if="list.length > 0" class="panel task-list-panel" shadow="never">
+        <el-card class="panel task-list-panel" shadow="never">
           <el-table :data="list" border stripe v-loading="listLoading">
             <el-table-column type="expand">
               <template #default="{ row }">
@@ -387,13 +400,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Tickets, Search, Promotion } from '@element-plus/icons-vue'
 import { wmsPickTaskApi, type PpbomRow, type PickTaskHead, type PickTaskCreateEntry } from '@/api/wmsPickTask'
+import { wmsPickingApi } from '@/api/wmsPicking'
 
-// ============== Tab 1: 新建任务 ==============
+// ============== Tab 切换 + Tab2 lazy load ==============
 const activeTab = ref('create')
+let listLoadedOnce = false
+watch(activeTab, (tab) => {
+  if (tab === 'list' && !listLoadedOnce) {
+    listLoadedOnce = true
+    loadList(1)
+  }
+})
 
 const searchNo = ref('')
 const currentProdNo = ref('')
@@ -441,9 +462,12 @@ async function doQuery() {
 }
 
 // 任务物料
+/** WMS ProductionStationCode 可选值 */
+const STATION_OPTIONS = ['3SC01', '3LC01', '3LC02', '3LC03', '3LC04']
 interface TaskItem extends PpbomRow {
   _totalQty: number
   _perBox: number
+  _stationCode: string
 }
 const taskItems = ref<TaskItem[]>([])
 
@@ -456,9 +480,55 @@ function addToTask(row: PpbomRow) {
     ...row,
     _totalQty: Number(row.remainingQty ?? row.needQty ?? 0),
     _perBox: Number(row.boxStandardQty ?? 1), // 默认取金蝶 FBoxStandardQty
+    _stationCode: '3SC01',
   })
 }
 function removeFromTask(i: number) { taskItems.value.splice(i, 1) }
+
+// ===== 批量工位 =====
+const batchStation = ref<string>('')
+function applyBatchStation() {
+  if (!batchStation.value) return
+  taskItems.value.forEach(i => { i._stationCode = batchStation.value! })
+}
+
+// ===== 清除物料本地累计 =====
+const clearingMaterial = ref<string | null>(null)
+
+async function handleClear(productionNo: string, materialCode: string, materialName?: string) {
+  if (!productionNo || !materialCode) return
+  const label = `${materialCode}${materialName ? '（' + materialName + '）' : ''}`
+  try {
+    await ElMessageBox.confirm(
+      `确认清除物料 ${label} 的所有「叫料已推」和「定时承诺」记录？`,
+      '二次确认',
+      { type: 'warning', confirmButtonText: '确认清除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' }
+    )
+  } catch { return }
+
+  clearingMaterial.value = materialCode
+  try {
+    const res: any = await wmsPickingApi.clearMaterial(productionNo, materialCode)
+    const cleared = Number(res?.data ?? 0)
+    ElMessage.success(`已清除 ${label} 的 ${cleared} 条本地累计记录`)
+
+    // 只刷新查询结果表里这一行，不做整页 doQuery
+    try {
+      const sumRes: any = await wmsPickingApi.getMaterialSummary(productionNo, materialCode)
+      const d = sumRes?.data ?? {}
+      const row = ppbomRows.value.find(r => r.materialCode === materialCode)
+      if (row) {
+        row.pushedQty = Number(d.pushedQty ?? 0)
+        row.pickTaskTotalQty = Number(d.pickTaskTotalQty ?? 0)
+        row.pickTaskSentQty = Number(d.pickTaskSentQty ?? 0)
+        const need = Number(row.needQty ?? 0)
+        row.remainingQty = Math.max(0, need - Number(row.pushedQty) - Number(row.pickTaskTotalQty))
+      }
+    } catch (e2) { console.warn('清除后刷新单物料汇总失败', e2) }
+  } catch (e: any) {
+    ElMessage.error(e?.message || '清除失败')
+  } finally { clearingMaterial.value = null }
+}
 
 function calcRounds(total: number, perBox: number) {
   if (!perBox || perBox <= 0 || !total || total <= 0) return 0
@@ -520,7 +590,7 @@ async function confirmCreate() {
       perBoxQty: p._perBox,
       unitCode: p.unitNumber,
       planCode: p.planCode,
-      productionStationCode: '',
+      productionStationCode: p._stationCode,
       outWarehouseCode: '2010',
       planQty: p.needQty,
     }))

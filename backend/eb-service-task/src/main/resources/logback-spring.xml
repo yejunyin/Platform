@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  eb-service-task 日志配置
+  日志目录默认在 jar 同级 logs/ 下（服务器：D:\BenProgram\logs\）
+  可通过 JVM 参数 -DLOG_PATH=D:\my\logs 覆盖
+-->
+<configuration scan="true" scanPeriod="30 seconds">
+
+    <!-- 日志根目录：jar 同级 logs/ -->
+    <property name="LOG_PATH" value="${LOG_PATH:-${LOG_TEMP:-./logs}}"/>
+    <property name="APP_NAME" value="eb-service-task"/>
+
+    <!-- 控制台输出（跟随系统编码，Windows PowerShell 默认 GBK） -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{40} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- 主日志文件：按天滚动 + 单文件 50MB + 保留 30 天 + 总上限 1GB -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/${APP_NAME}.log</file>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/${APP_NAME}.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>50MB</maxFileSize>          <!-- 单文件上限 -->
+            <maxHistory>30</maxHistory>              <!-- 保留 30 天 -->
+            <totalSizeCap>1GB</totalSizeCap>         <!-- 所有文件总上限 -->
+        </rollingPolicy>
+    </appender>
+
+    <!-- 错误日志单独文件（ERROR 及以上） -->
+    <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/${APP_NAME}-error.log</file>
+        <filter class="ch.qos.logback.classic.filter.LevelFilter">
+            <level>ERROR</level>
+            <onMatch>ACCEPT</onMatch>
+            <onMismatch>DENY</onMismatch>
+        </filter>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/${APP_NAME}-error.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>20MB</maxFileSize>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>200MB</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+
+    <!-- 包级别 -->
+    <logger name="com.enterprise.brain.task.wms" level="DEBUG"/>
+    <logger name="com.enterprise.brain.task" level="INFO"/>
+    <logger name="com.baomidou.mybatisplus" level="WARN"/>
+    <logger name="druid.sql" level="WARN"/>
+    <logger name="org.springframework" level="INFO"/>
+
+    <!-- 根级别 -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+        <appender-ref ref="ERROR_FILE"/>
+    </root>
+
+</configuration>

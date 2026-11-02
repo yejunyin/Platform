@@ -14,7 +14,9 @@ import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * WMS 生产领料申请接口
@@ -67,5 +69,29 @@ public class WmsPickingController {
     @Operation(summary = "查明细行")
     public Result<List<WmsPickingEntry>> entries(@PathVariable Long id) {
         return Result.success(wmsPickingService.listEntries(id));
+    }
+
+    @DeleteMapping("/{productionNo}/material/{materialCode}")
+    @Operation(summary = "清除某物料的本地累计数据",
+            description = "删除该生产订单下指定物料的所有叫料已推记录 + 定时承诺记录，返回清除的明细行数")
+    public Result<Integer> clearMaterial(
+            @PathVariable String productionNo,
+            @PathVariable String materialCode) {
+        int cleared = wmsPickingService.clearMaterialSummary(productionNo, materialCode);
+        return Result.success(cleared);
+    }
+
+    @GetMapping("/{productionNo}/material/{materialCode}/summary")
+    @Operation(summary = "查询单物料的本地累计汇总",
+            description = "返回 pushedQty（叫料已推）、pickTaskTotalQty（定时承诺总量）、pickTaskSentQty（定时已发）")
+    public Result<Map<String, Object>> getMaterialSummary(
+            @PathVariable String productionNo,
+            @PathVariable String materialCode) {
+        WmsPickingService.LocalQtySummary s = wmsPickingService.getLocalQtySummaryForMaterial(productionNo, materialCode);
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("pushedQty", s.pushedQty);
+        data.put("pickTaskTotalQty", s.pickTaskTotalQty);
+        data.put("pickTaskSentQty", s.pickTaskSentQty);
+        return Result.success(data);
     }
 }

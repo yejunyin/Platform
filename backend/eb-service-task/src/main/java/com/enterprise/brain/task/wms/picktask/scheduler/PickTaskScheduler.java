@@ -289,8 +289,7 @@ public class PickTaskScheduler {
         }
 
         // 组装 WMS JSON
-        String billNo = "MES-PTK-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
-                + "-" + UUID.randomUUID().toString().replace("-", "").substring(0, 4).toUpperCase();
+        String billNo = pickingService.generateNextBillNo(task.getProductionNo());
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("BillCode", billNo);

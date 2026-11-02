@@ -17,6 +17,7 @@ import com.enterprise.brain.task.wms.mapper.WmsPickingMapper;
 import com.enterprise.brain.task.wms.picktask.entity.WmsPickTask;
 import com.enterprise.brain.task.wms.picktask.entity.WmsPickTaskEntry;
 import com.enterprise.brain.task.wms.picktask.mapper.WmsPickTaskEntryMapper;
+import com.enterprise.brain.task.wms.picktask.mapper.WmsPickTaskLogMapper;
 import com.enterprise.brain.task.wms.picktask.mapper.WmsPickTaskMapper;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -57,6 +58,9 @@ public class WmsPickingService {
 
     @Resource
     private WmsPickTaskEntryMapper pickTaskEntryMapper;
+
+    @Resource
+    private WmsPickTaskLogMapper pickTaskLogMapper;
 
     @Resource
     private KingdeeService kingdeeService;
@@ -396,6 +400,27 @@ public class WmsPickingService {
         log.info("[WMS叫料] 校验通过 productionNo={}, entries={}", request.getProductionNo(), request.getEntries().size());
     }
 
+    /**
+     * 生成唯一 BillCode：{productionNo}-{MMddHHmmssSSS}
+     * 精度到毫秒，同一毫秒冲突时拼 2 位随机数兜底
+     */
+    public String generateNextBillNo(String productionNo) {
+        if (productionNo == null || productionNo.isBlank()) productionNo = "UNKNOWN";
+        String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("MMddHHmmssSSS"));
+        String billNo = productionNo + "-" + ts;
+        log.info("[BillCode] 生成 → {}", billNo);
+        return billNo;
+    }
+
+    /**
+     * 获取指定生产订单号 + 物料编码的本地累计数据汇总（单物料）
+     * 清除后前端用来刷新查询结果表里的那一行
+     */
+    public LocalQtySummary getLocalQtySummaryForMaterial(String productionNo, String materialCode) {
+        LocalQtySummary s = getLocalQtySummary(productionNo).get(materialCode);
+        return s != null ? s : new LocalQtySummary();
+    }
+
     /** 本地累计数量汇总（用于校验和展示） */
     public static class LocalQtySummary {
         /** 叫料已推送数量（status=sent） */
@@ -469,8 +494,7 @@ public class WmsPickingService {
      * 存库用编程式事务强制 commit，确保后续抛 BusinessException 时不会被 @Transactional 回滚。
      */
     public WmsPicking pushToWms(WmsPickingSendRequest request) {
-        String billNo = "MES-PK-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
-                + "-" + UUID.randomUUID().toString().replace("-", "").substring(0, 4).toUpperCase();
+        String billNo = generateNextBillNo(request.getProductionNo());
 
         // [临时关闭] 校验：本次领料数量不能超过 应发数量 - 已领 - 叫料已推 - 定时承诺
         // validatePickingQty(request);
@@ -861,6 +885,91 @@ public class WmsPickingService {
         return entryMapper.selectList(new LambdaQueryWrapper<WmsPickingEntry>()
                 .eq(WmsPickingEntry::getPickingId, pickingId)
                 .orderByAsc(WmsPickingEntry::getItemNo));
+    }
+
+    // ======================= 5. 按物料清除本地累计（叫料已推 + 定时承诺） =======================
+
+    /**
+     * 清除指定生产订单下某物料的所有本地累计数据：
+     *  - wms_picking_entry 中 materialCode 匹配的记录（关联的 picking 头如空则一并删）
+     *  - wms_pick_task_entry 中 materialCode 匹配的记录（关联的 pick_task 头如空则一并删）
+     *
+     * 作用：将该物料的"叫料已推"和"定时承诺"重置为 0，让前端重新开始叫料。
+     *
+     * @return 被清除的 picking_entry 数量 + pick_task_entry 数量
+     */
+    @Transactional
+    public int clearMaterialSummary(String productionNo, String materialCode) {
+        if (productionNo == null || productionNo.isBlank()
+                || materialCode == null || materialCode.isBlank()) {
+            throw new BusinessException("生产订单号 和 物料编码 不能为空");
+        }
+        String mc = materialCode.trim();
+
+        int totalCleared = 0;
+
+        // ---- 1. 清除叫料已推：wms_picking_entry ----
+        // 找到该 productionNo 下所有 picking 头
+        List<WmsPicking> allPickings = pickingMapper.selectList(
+                new LambdaQueryWrapper<WmsPicking>()
+                        .eq(WmsPicking::getProductionNo, productionNo));
+
+        if (!allPickings.isEmpty()) {
+            List<Long> pickingIds = allPickings.stream().map(WmsPicking::getId).collect(Collectors.toList());
+            // 删掉 materialCode 匹配的 entries
+            int pickingEntryDeleted = entryMapper.delete(new LambdaQueryWrapper<WmsPickingEntry>()
+                    .in(WmsPickingEntry::getPickingId, pickingIds)
+                    .eq(WmsPickingEntry::getMaterialCode, mc));
+            totalCleared += pickingEntryDeleted;
+            log.info("[WMS叫料·清除] 删除叫料明细 entry={} 条 productionNo={} materialCode={}",
+                    pickingEntryDeleted, productionNo, mc);
+
+            // 如果某个 picking 头下已经没有 entries 了，把整个头删掉
+            List<WmsPickingEntry> remainingEntries = entryMapper.selectList(
+                    new LambdaQueryWrapper<WmsPickingEntry>()
+                            .in(WmsPickingEntry::getPickingId, pickingIds));
+            Set<Long> remainingPickingIds = remainingEntries.stream()
+                    .map(WmsPickingEntry::getPickingId).collect(Collectors.toSet());
+            for (WmsPicking h : allPickings) {
+                if (!remainingPickingIds.contains(h.getId())) {
+                    pickingMapper.deleteById(h.getId());
+                    log.info("[WMS叫料·清除] 领料单头已空，删除 billNo={} id={}", h.getBillNo(), h.getId());
+                }
+            }
+        }
+
+        // ---- 2. 清除定时承诺：wms_pick_task_entry ----
+        List<WmsPickTask> allTasks = pickTaskMapper.selectList(
+                new LambdaQueryWrapper<WmsPickTask>()
+                        .eq(WmsPickTask::getProductionNo, productionNo));
+
+        if (!allTasks.isEmpty()) {
+            List<Long> taskIds = allTasks.stream().map(WmsPickTask::getId).collect(Collectors.toList());
+            int taskEntryDeleted = pickTaskEntryMapper.delete(new LambdaQueryWrapper<WmsPickTaskEntry>()
+                    .in(WmsPickTaskEntry::getTaskId, taskIds)
+                    .eq(WmsPickTaskEntry::getMaterialCode, mc));
+            totalCleared += taskEntryDeleted;
+            log.info("[WMS叫料·清除] 删除定时任务明细 entry={} 条 productionNo={} materialCode={}",
+                    taskEntryDeleted, productionNo, mc);
+
+            // 如果某个 pick_task 头下已经没有 entries 了，把整个头删掉
+            List<WmsPickTaskEntry> remainingTaskEntries = pickTaskEntryMapper.selectList(
+                    new LambdaQueryWrapper<WmsPickTaskEntry>()
+                            .in(WmsPickTaskEntry::getTaskId, taskIds));
+            Set<Long> remainingTaskIds = remainingTaskEntries.stream()
+                    .map(WmsPickTaskEntry::getTaskId).collect(Collectors.toSet());
+            for (WmsPickTask t : allTasks) {
+                if (!remainingTaskIds.contains(t.getId())) {
+                    pickTaskMapper.deleteById(t.getId());
+                    log.info("[WMS叫料·清除] 定时任务头已空，删除 taskNo={} id={}", t.getTaskNo(), t.getId());
+                }
+            }
+        }
+
+        if (totalCleared == 0) {
+            log.info("[WMS叫料·清除] 未找到可清除的数据 productionNo={} materialCode={}", productionNo, mc);
+        }
+        return totalCleared;
     }
 
     // ======================= 工具 =======================

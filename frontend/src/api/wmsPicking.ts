@@ -106,4 +106,18 @@ export const wmsPickingApi = {
   entries(id: number): AxiosPromise<PickingEntry[]> {
     return request.get(`/wms-picking/${id}/entries`)
   },
+
+  /** 清除某物料的本地累计数据（叫料已推 + 定时承诺） */
+  clearMaterial(productionNo: string, materialCode: string): AxiosPromise<number> {
+    return request.delete(`/wms-picking/${productionNo}/material/${materialCode}`)
+  },
+
+  /** 查询单物料的本地累计汇总（pushedQty / pickTaskTotalQty / pickTaskSentQty） */
+  getMaterialSummary(productionNo: string, materialCode: string): AxiosPromise<{
+    pushedQty: number
+    pickTaskTotalQty: number
+    pickTaskSentQty: number
+  }> {
+    return request.get(`/wms-picking/${productionNo}/material/${materialCode}/summary`)
+  },
 }

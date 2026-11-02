@@ -25,6 +25,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -81,9 +82,7 @@ public class OneClickPickScheduler {
     @Value("${one-click-pick.max-round-materials:48}")
     private int maxRoundMaterials;
 
-    /** 剩余物料种类 ≤ 该阈值时，放宽料架限制 */
-    @Value("${one-click-pick.relax-threshold:8}")
-    private int relaxThreshold;
+    /** 剩余物料种类 ≤ maxRoundMaterials 时，触发 relax 模式（剩余框位全分配） */
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -239,9 +238,10 @@ public class OneClickPickScheduler {
         Map<String, BigDecimal> shelfForTask = shelfMap.getOrDefault(task.getProductionNo(), Collections.emptyMap());
         boolean shelfAvailable = !shelfMap.isEmpty();
 
+        int releasedDelta = 0;   // 本轮因释放而增加的 sentQty 次数（>0 表示"查到物料被输送"）
+        int confirmedDelta = 0; // 本轮新确认上料次数
+
         if (shelfAvailable) {
-            int releasedDelta = 0;   // 本轮因释放而增加的 sentQty 次数
-            int confirmedDelta = 0; // 本轮新确认上料次数
 
             for (WmsOneClickPickEntry e : entries) {
                 BigDecimal prev = e.getLastOnShelfQty();
@@ -323,7 +323,7 @@ public class OneClickPickScheduler {
             return;
         }
 
-        // ========== Phase C: 选本轮要推的物料（轮询均衡 + 在途总量控制） ==========
+        // ========== Phase C: 选本轮要推的物料（动态框位分配） ==========
         boolean firstRound = task.getCurrentRound() == null || task.getCurrentRound() == 0;
 
         // 过滤: 未发满
@@ -336,7 +336,7 @@ public class OneClickPickScheduler {
                 totalInFlight += e.getInFlightTimes();
             }
         }
-        boolean relax = !firstRound && candidates.size() <= relaxThreshold;
+        boolean relax = !firstRound && candidates.size() <= maxRoundMaterials;
 
         // 排序优先级（三层）:
         //   1. 在途少的优先（优先清在途）
@@ -357,61 +357,120 @@ public class OneClickPickScheduler {
         Map<String, String> planMap = new LinkedHashMap<>();
         Map<String, String> stationMap = new LinkedHashMap<>();
         Map<String, String> whMap = new LinkedHashMap<>();
+        // 记录每种物料本轮推了几"箱"（=sent_times 增量 = inFlight 增量）
+        Map<String, Integer> roundSentTimesInc = new LinkedHashMap<>();
 
         int pickedMaterials = 0;
-        int pickedSentTimesSum = 0;
-        int pickedInFlightSum = totalInFlight; // 当前已有的在途
+        int pickedInFlightSum = totalInFlight;
 
-        for (WmsOneClickPickEntry e : candidates) {
-            BigDecimal left = e.getTotalQty().subtract(safe(e.getSentQty()));
-            if (left.compareTo(BigDecimal.ZERO) <= 0) continue;
+        if (firstRound) {
+            // ── 首轮: 全部物料推一遍，不限种类数和框数 ──
+            for (WmsOneClickPickEntry e : candidates) {
+                BigDecimal left = e.getTotalQty().subtract(safe(e.getSentQty()));
+                if (left.compareTo(BigDecimal.ZERO) <= 0) continue;
+                BigDecimal roundQty = left.min(e.getPerBoxQty());
+                if (roundQty.compareTo(BigDecimal.ZERO) <= 0) continue;
 
-            // ── 在途总量控制 ──
-            // relax 模式: 在途 + 本轮新推不能超 max-round-materials (40)
-            // 非 relax 且非首轮: 本轮推的物料数不能超 max-round-materials
-            // 首轮: 全部推，不限制
-            if (firstRound) {
-                // 不限制
-            } else if (relax) {
-                if (pickedInFlightSum + 1 > maxRoundMaterials) {
-                    log.info("[一键领料] taskId={} 在途+本轮={} 已达 {} 上限，停止选料（relax 模式）",
-                            taskId, pickedInFlightSum + 1, maxRoundMaterials);
-                    break;
-                }
-            } else {
-                if (pickedMaterials >= maxRoundMaterials) break;
+                int idx = entries.indexOf(e);
+                roundQtyArr[idx] = roundQty;
+                qtyMap.merge(e.getMaterialCode(), roundQty, BigDecimal::add);
+                unitMap.putIfAbsent(e.getMaterialCode(), e.getUnitCode());
+                planMap.putIfAbsent(e.getMaterialCode(), e.getPlanCode() != null ? e.getPlanCode() : "");
+                stationMap.putIfAbsent(e.getMaterialCode(), e.getStationCode());
+                whMap.putIfAbsent(e.getMaterialCode(), e.getWarehouseCode());
+
+                pickedMaterials++;
+                pickedInFlightSum += 1;
+                roundSentTimesInc.put(e.getMaterialCode(), 1);
+            }
+            log.info("[一键领料] taskId={} 首轮: 全部 {} 种推一遍（跳过料架）", taskId, pickedMaterials);
+
+        } else if (relax) {
+            // ── relax 模式: 剩余物料 ≤ maxRoundMaterials，把空框全分配出去 ──
+            int freeBoxes = maxRoundMaterials - totalInFlight;
+            if (freeBoxes < 0) freeBoxes = 0;
+
+            // 计算每种物料还需要几框
+            Map<String, Integer> needBoxes = new LinkedHashMap<>();
+            int totalNeedBoxes = 0;
+            for (WmsOneClickPickEntry e : candidates) {
+                BigDecimal left = e.getTotalQty().subtract(safe(e.getSentQty()));
+                int nb = left.divide(safe(e.getPerBoxQty()), 0, RoundingMode.CEILING).intValue();
+                if (nb < 1) nb = 1;
+                needBoxes.put(e.getMaterialCode(), nb);
+                totalNeedBoxes += nb;
             }
 
-            BigDecimal roundQty = left.min(e.getPerBoxQty());
-            if (roundQty.compareTo(BigDecimal.ZERO) <= 0) continue;
+            log.info("[一键领料] taskId={} relax模式: 物料={} 总需框={} 空框={} 在途={}",
+                    taskId, candidates.size(), totalNeedBoxes, freeBoxes, totalInFlight);
 
-            int idx = entries.indexOf(e);
-            roundQtyArr[idx] = roundQty;
-            qtyMap.put(e.getMaterialCode(), qtyMap.getOrDefault(e.getMaterialCode(), BigDecimal.ZERO).add(roundQty));
-            unitMap.putIfAbsent(e.getMaterialCode(), e.getUnitCode());
-            planMap.putIfAbsent(e.getMaterialCode(), e.getPlanCode() != null ? e.getPlanCode() : "");
-            stationMap.putIfAbsent(e.getMaterialCode(), e.getStationCode());
-            whMap.putIfAbsent(e.getMaterialCode(), e.getWarehouseCode());
+            // 贪心分配: 按排序顺序（在途少→sent_times少），能拿多少拿多少
+            for (WmsOneClickPickEntry e : candidates) {
+                if (freeBoxes <= 0) break;
 
-            pickedMaterials++;
-            pickedSentTimesSum += safeInt(e.getSentTimes());
-            pickedInFlightSum += 1; // 本轮新推 1 次 = 在途 +1
+                int canTake = Math.min(needBoxes.get(e.getMaterialCode()), freeBoxes);
+                if (canTake <= 0) continue;
+
+                BigDecimal left = e.getTotalQty().subtract(safe(e.getSentQty()));
+                BigDecimal roundQty = safe(e.getPerBoxQty()).multiply(BigDecimal.valueOf(canTake));
+                if (roundQty.compareTo(left) > 0) roundQty = left; // 最后截断
+                if (roundQty.compareTo(BigDecimal.ZERO) <= 0) continue;
+
+                int actualBoxes = roundQty.divide(safe(e.getPerBoxQty()), 0, RoundingMode.DOWN).intValue();
+                if (actualBoxes <= 0) actualBoxes = 1;
+
+                int idx = entries.indexOf(e);
+                roundQtyArr[idx] = roundQty;
+                qtyMap.merge(e.getMaterialCode(), roundQty, BigDecimal::add);
+                unitMap.putIfAbsent(e.getMaterialCode(), e.getUnitCode());
+                planMap.putIfAbsent(e.getMaterialCode(), e.getPlanCode() != null ? e.getPlanCode() : "");
+                stationMap.putIfAbsent(e.getMaterialCode(), e.getStationCode());
+                whMap.putIfAbsent(e.getMaterialCode(), e.getWarehouseCode());
+
+                pickedMaterials++;
+                pickedInFlightSum += actualBoxes;
+                roundSentTimesInc.put(e.getMaterialCode(), actualBoxes);
+                freeBoxes -= actualBoxes;
+
+                log.info("[一键领料] taskId={} relax分配: 物料{} 需{} 拿{} 剩余空框={}",
+                        taskId, e.getMaterialCode(), needBoxes.get(e.getMaterialCode()), actualBoxes, freeBoxes);
+            }
+
+        } else {
+            // ── 正常模式: 本轮推前 maxRoundMaterials 种，每种 1 箱 ──
+            for (WmsOneClickPickEntry e : candidates) {
+                if (pickedMaterials >= maxRoundMaterials) break;
+
+                BigDecimal left = e.getTotalQty().subtract(safe(e.getSentQty()));
+                if (left.compareTo(BigDecimal.ZERO) <= 0) continue;
+                BigDecimal roundQty = left.min(e.getPerBoxQty());
+                if (roundQty.compareTo(BigDecimal.ZERO) <= 0) continue;
+
+                int idx = entries.indexOf(e);
+                roundQtyArr[idx] = roundQty;
+                qtyMap.merge(e.getMaterialCode(), roundQty, BigDecimal::add);
+                unitMap.putIfAbsent(e.getMaterialCode(), e.getUnitCode());
+                planMap.putIfAbsent(e.getMaterialCode(), e.getPlanCode() != null ? e.getPlanCode() : "");
+                stationMap.putIfAbsent(e.getMaterialCode(), e.getStationCode());
+                whMap.putIfAbsent(e.getMaterialCode(), e.getWarehouseCode());
+
+                pickedMaterials++;
+                pickedInFlightSum += 1;
+                roundSentTimesInc.put(e.getMaterialCode(), 1);
+            }
         }
 
-        log.info("[一键领料] taskId={} firstRound={} relax={} remaining={} picked={} " +
-                "totalInFlight={} pickedInFlightAfter={} maxRound={}",
-                taskId, firstRound, relax, remainingCount, pickedMaterials,
-                totalInFlight, pickedInFlightSum, maxRoundMaterials);
+        log.info("[一键领料] taskId={} firstRound={} relax={} picked={} totalInFlight={} pickedInFlightAfter={} maxRound={}",
+                taskId, firstRound, relax, pickedMaterials, totalInFlight, pickedInFlightSum, maxRoundMaterials);
 
         if (pickedMaterials == 0) {
             log.info("[一键领料] taskId={} 本轮无可推物料，安排下一次轮询", taskId);
-            scheduleNext(task, task.getIntervalSec() == null ? 60 : task.getIntervalSec() * 60);
+            scheduleNext(task, computeDelaySec(task, releasedDelta));
             return;
         }
 
         // ========== Phase D: 组装 WMS JSON → 推送 ==========
-        String billNo = "MES-OCP-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
-                + "-" + UUID.randomUUID().toString().replace("-", "").substring(0, 4).toUpperCase();
+        String billNo = pickingService.generateNextBillNo(task.getProductionNo());
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("BillCode", billNo);
@@ -465,6 +524,7 @@ public class OneClickPickScheduler {
         final String finalWmsTaskNo = wmsTaskNo;
         final String finalRequestId = requestId;
         final BigDecimal[] finalRoundQtyArr = roundQtyArr;
+        final Map<String, Integer> finalRoundSentTimesInc = roundSentTimesInc;
 
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         tx.execute(status -> {
@@ -476,7 +536,8 @@ public class OneClickPickScheduler {
                 if (!finalWmsSuccess) continue;
 
                 WmsOneClickPickEntry e = entries.get(i);
-                int newSentTimes = safeInt(e.getSentTimes()) + 1;
+                int incTimes = finalRoundSentTimesInc.getOrDefault(e.getMaterialCode(), 1);
+                int newSentTimes = safeInt(e.getSentTimes()) + incTimes;
                 int newCurRound = safeInt(e.getCurrentRound()) + 1;
                 UpdateWrapper<WmsOneClickPickEntry> uw = new UpdateWrapper<>();
                 uw.eq("id", e.getId())
@@ -536,7 +597,7 @@ public class OneClickPickScheduler {
 
         WmsOneClickPick latest = taskMapper.selectById(taskId);
         if ("running".equals(latest.getStatus())) {
-            scheduleNext(latest, latest.getNextFireTime());
+            scheduleNext(latest, computeDelaySec(latest, releasedDelta));
         }
     }
 
@@ -577,6 +638,23 @@ public class OneClickPickScheduler {
 
     private BigDecimal safe(BigDecimal v) { return v != null ? v : BigDecimal.ZERO; }
     private int safeInt(Integer v) { return v != null ? v : 0; }
+
+    /**
+     * 根据"是否查到物料被输送"决定下一轮延迟：
+     *   releasedDelta > 0 → 料架驱动：快速再查（5 秒后）
+     *   releasedDelta == 0 → 保底：按 intervalSec 间隔（分钟 × 60）
+     */
+    private long computeDelaySec(WmsOneClickPick task, int releasedDelta) {
+        if (releasedDelta > 0) {
+            log.info("[一键领料] taskId={} 查到物料被输送(releasedDelta={})，下一轮 5s 后执行",
+                    task.getId(), releasedDelta);
+            return 5;
+        }
+        long fallbackMin = task.getIntervalSec() == null ? 1 : task.getIntervalSec();
+        long fallbackSec = fallbackMin * 60;
+        log.info("[一键领料] taskId={} 未查到物料被输送，按保底间隔 {}s 后执行", task.getId(), fallbackSec);
+        return fallbackSec;
+    }
 
     // ============ 外部控制方法 ============
 
