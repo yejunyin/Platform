@@ -98,8 +98,8 @@ export const wmsPickingApi = {
   },
 
   /** 分页查历史 */
-  page(pageNum = 1, pageSize = 20, status?: string): AxiosPromise<{ records: PickingHead[]; total: number }> {
-    return request.get('/wms-picking/page', { params: { pageNum, pageSize, status } })
+  page(pageNum = 1, pageSize = 20, params?: { status?: string; keyword?: string; lineCode?: string }): AxiosPromise<{ records: PickingHead[]; total: number }> {
+    return request.get('/wms-picking/page', { params: { pageNum, pageSize, ...params } })
   },
 
   /** 查明细 */

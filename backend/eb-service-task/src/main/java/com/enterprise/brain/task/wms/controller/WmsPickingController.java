@@ -61,8 +61,10 @@ public class WmsPickingController {
     public Result<Page<WmsPicking>> page(
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "20") int pageSize,
-            @RequestParam(required = false) String status) {
-        return Result.success(wmsPickingService.page(pageNum, pageSize, status));
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String lineCode) {
+        return Result.success(wmsPickingService.page(pageNum, pageSize, status, keyword, lineCode));
     }
 
     @GetMapping("/{id}/entries")

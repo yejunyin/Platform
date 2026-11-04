@@ -74,8 +74,10 @@ public class WmsOneClickPickController {
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "20") int pageSize,
             @RequestParam(required = false) String status,
-            @RequestParam(required = false) String productionNo) {
-        return Result.success(oneClickPickService.page(pageNum, pageSize, status, productionNo));
+            @RequestParam(required = false) String productionNo,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String lineCode) {
+        return Result.success(oneClickPickService.page(pageNum, pageSize, status, productionNo, keyword, lineCode));
     }
 
     @GetMapping("/{id}")

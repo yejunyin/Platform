@@ -1,0 +1,2 @@
+2026-11-02 11:30:27.333 [OneClickPickScheduler] ERROR com.enterprise.brain.task.service.WmsService - [WMS] ProductionPicking HTTP 错误: 物料 6000333820 不存在唯一且非空的基础资料默认仓库。
+2026-11-02 11:32:23.402 [OneClickPickScheduler] ERROR com.enterprise.brain.task.service.WmsService - [WMS] ProductionPicking HTTP 错误: 物料 6000557901 不存在唯一且非空的基础资料默认仓库。

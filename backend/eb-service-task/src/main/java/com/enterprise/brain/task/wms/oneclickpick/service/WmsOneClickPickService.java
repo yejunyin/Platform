@@ -170,10 +170,17 @@ public class WmsOneClickPickService {
         return taskMapper.selectById(taskId);
     }
 
-    public Page<WmsOneClickPick> page(int pageNum, int pageSize, String status, String productionNo) {
+    public Page<WmsOneClickPick> page(int pageNum, int pageSize, String status, String productionNo, String keyword, String lineCode) {
+        LocalDateTime weekAgo = LocalDateTime.now().minusDays(7);
         QueryWrapper<WmsOneClickPick> qw = new QueryWrapper<>();
         if (status != null && !status.isEmpty()) qw.eq("status", status);
         if (productionNo != null && !productionNo.isEmpty()) qw.like("production_no", productionNo);
+        if (lineCode != null && !lineCode.isEmpty()) qw.eq("line_code", lineCode);
+        qw.ge("create_time", weekAgo);
+        String kw = (keyword != null && !keyword.isBlank()) ? keyword.trim() : null;
+        if (kw != null) {
+            qw.and(w -> w.like("task_no", kw).or().like("production_no", kw));
+        }
         qw.orderByDesc("create_time");
         return taskMapper.selectPage(Page.of(pageNum, pageSize), qw);
     }

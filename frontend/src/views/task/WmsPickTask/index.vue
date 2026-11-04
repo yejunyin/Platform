@@ -253,8 +253,24 @@
       <el-tab-pane label="历史记录" name="list">
         <el-card class="panel search-panel" shadow="never">
           <div class="search-bar">
-            <el-input v-model="listProdNo" placeholder="生产订单号" clearable style="width:260px" />
-            <el-select v-model="listStatus" placeholder="全部状态" clearable style="width:140px">
+            <el-input
+              v-model="listKeyword"
+              placeholder="🔍 搜索 任务单号 / 生产订单号"
+              clearable
+              @keyup.enter="loadList(1)"
+              style="width: 260px"
+            />
+            <el-input v-model="listProdNo" placeholder="生产订单号（精确）" clearable style="width: 180px" />
+            <el-select
+              v-model="listLineCode"
+              placeholder="产线（全部）"
+              clearable filterable allow-create default-first-option
+              style="width: 160px"
+              @change="loadList(1)"
+            >
+              <el-option v-for="l in lineCodeOptions" :key="l" :value="l" :label="l" />
+            </el-select>
+            <el-select v-model="listStatus" placeholder="全部状态" clearable style="width: 140px">
               <el-option value="pending" label="待启动" />
               <el-option value="running" label="运行中" />
               <el-option value="paused" label="已暂停" />
@@ -264,6 +280,7 @@
             <el-button type="primary" :loading="listLoading" @click="loadList(1)">
               <el-icon><Search /></el-icon>查询
             </el-button>
+            <el-button @click="resetListSearch">重置</el-button>
           </div>
         </el-card>
 
@@ -617,12 +634,15 @@ async function confirmCreate() {
 }
 
 // ============== Tab 2: 任务列表 ==============
+const lineCodeOptions = ref<string[]>([])
+const listKeyword = ref('')
 const listProdNo = ref('')
+const listLineCode = ref('')
 const listStatus = ref('')
 const list = ref<any[]>([])
 const listTotal = ref(0)
 const listPageNum = ref(1)
-const listPageSize = ref(20)
+const listPageSize = ref(50)
 const listLoading = ref(false)
 
 async function loadList(pageNum = 1) {
@@ -632,10 +652,16 @@ async function loadList(pageNum = 1) {
     const res = await wmsPickTaskApi.page(pageNum, listPageSize.value, {
       status: listStatus.value || undefined,
       productionNo: listProdNo.value.trim() || undefined,
+      keyword: listKeyword.value.trim() || undefined,
+      lineCode: listLineCode.value.trim() || undefined,
     })
     const data: any = (res as any).data
     list.value = data?.records ?? []
-    listTotal.value = data?.total ?? 0
+    listTotal.value = Number(data?.total ?? 0)
+    // 归纳产线选项
+    const set = new Set(lineCodeOptions.value)
+    for (const r of list.value) if (r.lineCode) set.add(r.lineCode)
+    lineCodeOptions.value = [...set].sort()
 
     // 并行加载每个任务的明细 + 最近日志（最多 5 条）
     for (const t of list.value) {
@@ -704,6 +730,14 @@ function remainingClass(row: PpbomRow) {
   if (rem <= 0) return 'text-danger'
   if (rem < Number(row.needQty ?? 0)) return 'text-warning'
   return ''
+}
+
+function resetListSearch() {
+  listKeyword.value = ''
+  listProdNo.value = ''
+  listLineCode.value = ''
+  listStatus.value = ''
+  loadList(1)
 }
 </script>
 

@@ -14,10 +14,10 @@ GO
 
 CREATE TABLE dbo.wms_picking (
     id              BIGINT          NOT NULL,
-    bill_no         VARCHAR(32)     NOT NULL,          -- MES 侧单号（MES 前缀 + 序号）
+    bill_no         VARCHAR(100)    NOT NULL,          -- MES 侧单号（MES 前缀 + 序号，扩长至 100 以容纳长 productionNo + 时间戳）
     production_no   VARCHAR(64)     NOT NULL,          -- 生产订单号
     product_code    VARCHAR(64)     NULL,              -- 产品编码（冗余）
-    product_name    NVARCHAR(200)   NULL,              -- 产品名称（冗余）
+    product_name    NVARCHAR(500)   NULL,              -- 产品名称（冗余，扩长至 500 防截断）
     line_code       VARCHAR(64)     NOT NULL,          -- 生产线编码（用户发送时填写）
     org_code        VARCHAR(32)     NULL,              -- 组织编码
     dept_code       VARCHAR(32)     NULL,              -- 部门编码

@@ -117,7 +117,7 @@ export const wmsPickTaskApi = {
   page(
     pageNum = 1,
     pageSize = 20,
-    params?: { status?: string; productionNo?: string }
+    params?: { status?: string; productionNo?: string; keyword?: string; lineCode?: string }
   ): AxiosPromise<{ records: PickTaskHead[]; total: number }> {
     return request.get('/wms-pick-task/page', { params: { pageNum, pageSize, ...params } })
   },

@@ -231,14 +231,42 @@
           <template #header>
             <div class="panel-header">
               <span class="panel-title">领料单历史</span>
-              <el-radio-group v-model="historyStatus" size="small" @change="loadHistory()">
-                <el-radio-button value="">全部</el-radio-button>
-                <el-radio-button value="pending">待发送</el-radio-button>
-                <el-radio-button value="sent">已发送</el-radio-button>
-                <el-radio-button value="failed">失败</el-radio-button>
-              </el-radio-group>
             </div>
           </template>
+
+          <!-- 搜索栏 -->
+          <div class="search-bar" style="margin-bottom: 12px">
+            <el-input
+              v-model="historyKeyword"
+              placeholder="🔍 搜索 MES单号 / 生产订单号 / WMS任务号"
+              clearable
+              style="width: 320px"
+              @keyup.enter="loadHistory(1)"
+            />
+            <el-select
+              v-model="historyLineCode"
+              placeholder="产线（全部）"
+              clearable
+              filterable
+              allow-create
+              default-first-option
+              style="width: 160px"
+              @keyup.enter="loadHistory(1)"
+              @change="loadHistory(1)"
+            >
+              <el-option v-for="l in lineCodeOptions" :key="l" :value="l" :label="l" />
+            </el-select>
+            <el-select v-model="historyStatus" placeholder="全部状态" clearable style="width: 140px">
+              <el-option value="pending" label="待发送" />
+              <el-option value="sent" label="已发送" />
+              <el-option value="failed" label="失败" />
+            </el-select>
+            <el-button type="primary" :loading="historyLoading" @click="loadHistory(1)">
+              <el-icon><Search /></el-icon>搜索
+            </el-button>
+            <el-button @click="resetHistorySearch">重置</el-button>
+            <span class="panel-sub" style="margin-left: 8px">· 仅展示近一周数据</span>
+          </div>
 
           <el-table :data="historyList" border stripe class="data-table" v-loading="historyLoading">
             <el-table-column type="expand">
@@ -569,11 +597,14 @@ async function confirmSend() {
 }
 
 // ===== 历史 =====
+const lineCodeOptions = ref<string[]>([])
+const historyKeyword = ref('')
+const historyLineCode = ref('')
 const historyStatus = ref('')
 const historyList = ref<any[]>([])
 const historyTotal = ref(0)
 const historyPageNum = ref(1)
-const historyPageSize = ref(20)
+const historyPageSize = ref(50)
 const historyLoading = ref(false)
 let historyLoadedOnce = false
 
@@ -588,15 +619,32 @@ async function loadHistory(pageNum = 1) {
   historyPageNum.value = pageNum
   historyLoading.value = true
   try {
-    const res = await wmsPickingApi.page(pageNum, historyPageSize.value, historyStatus.value)
+    const res = await wmsPickingApi.page(pageNum, historyPageSize.value, {
+      status: historyStatus.value || undefined,
+      keyword: historyKeyword.value.trim() || undefined,
+      lineCode: historyLineCode.value.trim() || undefined,
+    })
     const data: any = (res as any).data
     historyList.value = data?.records ?? []
-    historyTotal.value = data?.total ?? 0
+    historyTotal.value = Number(data?.total ?? 0)
+    // 归纳产线选项
+    const set = new Set(lineCodeOptions.value)
+    for (const r of historyList.value) {
+      if (r.lineCode) set.add(r.lineCode)
+    }
+    lineCodeOptions.value = [...set].sort()
   } catch (e: any) {
     ElMessage.error(e?.message || '加载历史失败')
   } finally {
     historyLoading.value = false
   }
+}
+
+function resetHistorySearch() {
+  historyKeyword.value = ''
+  historyLineCode.value = ''
+  historyStatus.value = ''
+  loadHistory(1)
 }
 
 function statusLabel(s?: string) {

@@ -14,10 +14,10 @@ GO
 
 CREATE TABLE dbo.wms_pick_task (
     id              BIGINT          NOT NULL,
-    task_no         VARCHAR(32)     NOT NULL,
+    task_no         VARCHAR(64)     NOT NULL,
     production_no   VARCHAR(64)     NOT NULL,
     product_code    VARCHAR(64)     NULL,
-    product_name    NVARCHAR(200)   NULL,
+    product_name    NVARCHAR(500)   NULL,
     line_code       VARCHAR(64)     NOT NULL,
     org_code        VARCHAR(32)     NULL,
     dept_code       VARCHAR(32)     NULL,
@@ -82,7 +82,7 @@ CREATE TABLE dbo.wms_pick_task_log (
     id              BIGINT          NOT NULL,
     task_id         BIGINT          NOT NULL,
     round_no        INT             NOT NULL,
-    bill_no         VARCHAR(32)     NOT NULL,
+    bill_no         VARCHAR(100)    NOT NULL,
     wms_task_no     VARCHAR(64)     NULL,
     status          VARCHAR(16)     NOT NULL,
     request_id      VARCHAR(64)     NULL,

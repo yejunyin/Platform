@@ -403,11 +403,18 @@ public class WmsPickingService {
     /**
      * 生成唯一 BillCode：{productionNo}-{MMddHHmmssSSS}
      * 精度到毫秒，同一毫秒冲突时拼 2 位随机数兜底
+     * 防御性截断：productionNo 过长时保留尾部（序号后缀更有辨识度），BillCode 总长 ≤ 80
      */
     public String generateNextBillNo(String productionNo) {
         if (productionNo == null || productionNo.isBlank()) productionNo = "UNKNOWN";
         String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("MMddHHmmssSSS"));
-        String billNo = productionNo + "-" + ts;
+        final int MAX_LEN = 80;
+        final int tsLen = ts.length() + 1; // +1 是连字符 "-"
+        String prod = productionNo;
+        if (prod.length() + tsLen > MAX_LEN) {
+            prod = prod.substring(prod.length() - (MAX_LEN - tsLen));
+        }
+        String billNo = prod + "-" + ts;
         log.info("[BillCode] 生成 → {}", billNo);
         return billNo;
     }
@@ -523,20 +530,20 @@ public class WmsPickingService {
         data.put("CostCenterCode", request.getOrgCode() != null ? request.getOrgCode() : "102");
         data.put("LineCode", request.getLineCode());
 
-        // FIFO 批次拆分：一个批次一条 entry
-        Map<String, BigDecimal> qtyMap = new LinkedHashMap<>();
-        Map<String, String> unitMap = new LinkedHashMap<>();
-        Map<String, String> planMap = new LinkedHashMap<>();
-        Map<String, String> stationMap = new LinkedHashMap<>();
-        Map<String, String> whMap = new LinkedHashMap<>();
+        // 直接传 entries，不做批次拆分，BatchCode=null 让 WMS 侧处理
+        List<Map<String, Object>> wmsEntries = new ArrayList<>();
+        int itemNo = 1;
         for (WmsPickingSendRequest.Entry e : request.getEntries()) {
-            qtyMap.put(e.getMaterialCode(), safe(e.getQuantity()));
-            unitMap.put(e.getMaterialCode(), e.getUnitCode() != null ? e.getUnitCode() : "");
-            planMap.put(e.getMaterialCode(), e.getPlanCode() != null ? e.getPlanCode() : "");
-            stationMap.put(e.getMaterialCode(), e.getProductionStationCode() != null ? e.getProductionStationCode() : "3SC01");
-            whMap.put(e.getMaterialCode(), e.getOutWarehouseCode() != null ? e.getOutWarehouseCode() : "2010");
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("ItemNo", itemNo++);
+            m.put("MaterialCode", e.getMaterialCode());
+            m.put("BatchCode", null);
+            m.put("Quantity", safe(e.getQuantity()));
+            m.put("UnitCode", e.getUnitCode() != null ? e.getUnitCode() : "");
+            m.put("ProductionStationCode", e.getProductionStationCode() != null ? e.getProductionStationCode() : "3SC01");
+            m.put("OutWarehouseCode", e.getOutWarehouseCode() != null ? e.getOutWarehouseCode() : "2010");
+            wmsEntries.add(m);
         }
-        List<Map<String, Object>> wmsEntries = fifoSplitWmsEntries(qtyMap, unitMap, planMap, stationMap, whMap);
         data.put("Entries", wmsEntries);
 
         // 打印完整 JSON 到日志
@@ -698,175 +705,20 @@ public class WmsPickingService {
         return head;
     }
 
-    // ======================= 3.5 FIFO 批次拆分 =======================
-
-    /**
-     * FIFO 批次拆分：查金蝶 STK_Inventory（FUpdateTime asc = 先入先出），
-     * 按批次先后把每个物料的需求数量拆分到多条 WMS entry（一个批次一条）。
-     * 查不到批次或库存不足时，剩余部分仍发 BatchCode=null 让 WMS 侧处理。
-     *
-     * @param materialQtyMap  物料编码 → 需要发的数量
-     * @param unitCodeMap     物料编码 → 单位编码
-     * @param planCodeMap     物料编码 → 计划跟踪号
-     * @param stationCodeMap  物料编码 → 工位编码
-     * @param warehouseCodeMap 物料编码 → 发料仓库（默认 2010）
-     * @return FIFO 拆分后的 WMS entries（BatchCode 已填）
-     */
-    public List<Map<String, Object>> fifoSplitWmsEntries(
-            Map<String, BigDecimal> materialQtyMap,
-            Map<String, String> unitCodeMap,
-            Map<String, String> planCodeMap,
-            Map<String, String> stationCodeMap,
-            Map<String, String> warehouseCodeMap) {
-
-        List<Map<String, Object>> result = new ArrayList<>();
-        if (materialQtyMap.isEmpty()) return result;
-
-        List<String> materialCodes = new ArrayList<>(materialQtyMap.keySet());
-        String firstWarehouse = warehouseCodeMap.values().stream().findFirst().orElse("2010");
-
-        // 查金蝶 FIFO 批次库存（全仓库）
-        List<StockRow> allStocks;
-        try {
-            allStocks = kingdeeService.queryStock(materialCodes);
-        } catch (Exception e) {
-            log.warn("[WMS叫料] 查金蝶 FIFO 批次失败，回退无批次发送: {}", e.getMessage());
-            allStocks = new ArrayList<>();
-        }
-
-        // [临时放开] 原来只过滤发料仓库 2010，现在放开全仓库批次都能用
-        // 原因：金蝶 FStockId.FNumber 编码可能不是 2010，过滤后全空
-        // Map<String, List<StockRow>> stockByMaterial = allStocks.stream()
-        //         .filter(s -> firstWarehouse.equals(s.getStockNumber()))
-        //         .collect(Collectors.groupingBy(StockRow::getMaterialCode, LinkedHashMap::new, Collectors.toList()));
-        Map<String, List<StockRow>> stockByMaterial = allStocks.stream()
-                .collect(Collectors.groupingBy(StockRow::getMaterialCode, LinkedHashMap::new, Collectors.toList()));
-
-        // 打印各仓库批次分布，排查用
-        Map<String, Long> warehouseCount = allStocks.stream()
-                .collect(Collectors.groupingBy(StockRow::getStockNumber, Collectors.counting()));
-        log.info("[WMS叫料] FIFO 金蝶批次分布(仓库→行数): {}", warehouseCount);
-
-        log.info("[WMS叫料] FIFO 批次拆分 materialCount={} stockRows={} (warehouse={}) qtyMap={}",
-                materialCodes.size(), allStocks.size(), firstWarehouse, materialQtyMap);
-
-        int itemNo = 1;
-        for (String materialCode : materialCodes) {
-            BigDecimal need = safe(materialQtyMap.get(materialCode));
-            log.info("[WMS叫料] FIFO 物料={} 需要发={}", materialCode, need);
-            if (need.compareTo(BigDecimal.ZERO) <= 0) {
-                log.warn("[WMS叫料] FIFO 物料={} need=0 跳过", materialCode);
-                continue;
-            }
-
-            List<StockRow> batches = stockByMaterial.getOrDefault(materialCode, new ArrayList<>());
-            BigDecimal remaining = need;
-            String myPlanCode = planCodeMap.get(materialCode);
-
-            // 分两轮：第一轮 planCode 精确匹配，第二轮通用（未使用过的所有批次）
-            Set<String> usedLotKeys = new HashSet<>();
-
-            // ===== 第一轮：只吃 planCode 匹配的批次 =====
-            if (myPlanCode != null && !myPlanCode.isBlank()) {
-                for (StockRow batch : batches) {
-                    if (remaining.compareTo(BigDecimal.ZERO) <= 0) break;
-                    // FMTONO 匹配（两边都不为空才比）
-                    String batchPlan = batch.getPlanCode();
-                    if (batchPlan == null || batchPlan.isBlank() || !myPlanCode.equals(batchPlan)) continue;
-                    BigDecimal avail = safe(batch.getBaseQty());
-                    if (avail.compareTo(BigDecimal.ZERO) <= 0) continue;
-
-                    BigDecimal thisQty = remaining.min(avail);
-                    Map<String, Object> m = new LinkedHashMap<>();
-                    m.put("ItemNo", itemNo++);
-                    m.put("MaterialCode", materialCode);
-                    m.put("BatchCode", batch.getLotNumber());
-                    m.put("Quantity", thisQty);
-                    m.put("UnitCode", unitCodeMap.getOrDefault(materialCode, ""));
-                    m.put("PlanCode", myPlanCode);
-                    m.put("ProductionStationCode", stationCodeMap.getOrDefault(materialCode, "3SC01"));
-                    m.put("OutWarehouseCode", warehouseCodeMap.getOrDefault(materialCode, firstWarehouse));
-                    result.add(m);
-                    remaining = remaining.subtract(thisQty);
-                    usedLotKeys.add(batch.getLotNumber());
-
-                    log.info("[WMS叫料] FIFO(plan) 物料={} 计划跟踪号={} 批次={} 可用={} 分配={} 剩余={}",
-                            materialCode, myPlanCode, batch.getLotNumber(), avail, thisQty, remaining);
-                }
-            }
-
-            // ===== 第二轮：通用批次补剩余（planCode 不匹配的 / 无计划跟踪号的批次）=====
-            if (remaining.compareTo(BigDecimal.ZERO) > 0) {
-                for (StockRow batch : batches) {
-                    if (remaining.compareTo(BigDecimal.ZERO) <= 0) break;
-                    // 跳过第一轮用过的
-                    if (usedLotKeys.contains(batch.getLotNumber())) continue;
-                    BigDecimal avail = safe(batch.getBaseQty());
-                    if (avail.compareTo(BigDecimal.ZERO) <= 0) continue;
-
-                    BigDecimal thisQty = remaining.min(avail);
-                    Map<String, Object> m = new LinkedHashMap<>();
-                    m.put("ItemNo", itemNo++);
-                    m.put("MaterialCode", materialCode);
-                    m.put("BatchCode", batch.getLotNumber());
-                    m.put("Quantity", thisQty);
-                    m.put("UnitCode", unitCodeMap.getOrDefault(materialCode, ""));
-                    m.put("PlanCode", myPlanCode != null ? myPlanCode : "");
-                    m.put("ProductionStationCode", stationCodeMap.getOrDefault(materialCode, "3SC01"));
-                    m.put("OutWarehouseCode", warehouseCodeMap.getOrDefault(materialCode, firstWarehouse));
-                    result.add(m);
-                    remaining = remaining.subtract(thisQty);
-                    usedLotKeys.add(batch.getLotNumber());
-
-                    log.info("[WMS叫料] FIFO(通用) 物料={} 批次={} 可用={} 分配={} 剩余={}",
-                            materialCode, batch.getLotNumber(), avail, thisQty, remaining);
-                }
-            }
-
-            // 库存不足部分：仍发一条 BatchCode=null，让 WMS/ERP 侧处理
-            if (remaining.compareTo(BigDecimal.ZERO) > 0) {
-                log.warn("[WMS叫料] FIFO 物料={} 批次库存不足(plan={})，剩余 {} 回退无批次发送",
-                        materialCode, myPlanCode, remaining);
-                Map<String, Object> m = new LinkedHashMap<>();
-                m.put("ItemNo", itemNo++);
-                m.put("MaterialCode", materialCode);
-                m.put("BatchCode", null);
-                m.put("Quantity", remaining);
-                m.put("UnitCode", unitCodeMap.getOrDefault(materialCode, ""));
-                m.put("PlanCode", myPlanCode != null ? myPlanCode : "");
-                m.put("ProductionStationCode", stationCodeMap.getOrDefault(materialCode, "3SC01"));
-                m.put("OutWarehouseCode", warehouseCodeMap.getOrDefault(materialCode, firstWarehouse));
-                result.add(m);
-            }
-        }
-        return result;
-    }
-
-    /**
-     * FIFO 批次拆分重载：单个 Entry → 可能多条 WMS entries
-     */
-    public List<Map<String, Object>> fifoSplitWmsEntry(
-            String materialCode, BigDecimal qty, String unitCode, String planCode,
-            String stationCode, String warehouseCode) {
-        Map<String, BigDecimal> qtyMap = new LinkedHashMap<>();
-        qtyMap.put(materialCode, qty);
-        Map<String, String> unitMap = new LinkedHashMap<>();
-        unitMap.put(materialCode, unitCode);
-        Map<String, String> planMap = new LinkedHashMap<>();
-        planMap.put(materialCode, planCode);
-        Map<String, String> stationMap = new LinkedHashMap<>();
-        stationMap.put(materialCode, stationCode);
-        Map<String, String> whMap = new LinkedHashMap<>();
-        whMap.put(materialCode, warehouseCode);
-        return fifoSplitWmsEntries(qtyMap, unitMap, planMap, stationMap, whMap);
-    }
-
     // ======================= 4. 查询历史 =======================
 
-    public Page<WmsPicking> page(int pageNum, int pageSize, String status) {
+    public Page<WmsPicking> page(int pageNum, int pageSize, String status, String keyword, String lineCode) {
+        String kw = (keyword != null && !keyword.isBlank()) ? keyword.trim() : null;
+        LocalDateTime weekAgo = LocalDateTime.now().minusDays(7);
         Page<WmsPicking> page = pickingMapper.selectPage(new Page<>(pageNum, pageSize),
                 new LambdaQueryWrapper<WmsPicking>()
                         .eq(status != null && !status.isBlank(), WmsPicking::getStatus, status)
+                        .eq(lineCode != null && !lineCode.isBlank(), WmsPicking::getLineCode, lineCode)
+                        .ge(WmsPicking::getCreateTime, weekAgo)
+                        .and(kw != null, w -> w
+                                .like(WmsPicking::getBillNo, kw)
+                                .or().like(WmsPicking::getProductionNo, kw)
+                                .or().like(WmsPicking::getWmsTaskNo, kw))
                         .orderByDesc(WmsPicking::getCreateTime));
         // 批量填充 entries
         if (page.getRecords() != null && !page.getRecords().isEmpty()) {

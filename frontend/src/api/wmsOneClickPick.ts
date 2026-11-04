@@ -117,7 +117,7 @@ export const wmsOneClickPickApi = {
   page(
     pageNum = 1,
     pageSize = 20,
-    params?: { status?: string; productionNo?: string }
+    params?: { status?: string; productionNo?: string; keyword?: string; lineCode?: string }
   ): AxiosPromise<{ records: OneClickPickHead[]; total: number }> {
     return request.get('/wms-one-click-pick/page', { params: { pageNum, pageSize, ...params } })
   },

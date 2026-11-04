@@ -352,11 +352,6 @@ public class OneClickPickScheduler {
 
         BigDecimal[] roundQtyArr = new BigDecimal[entries.size()];
         Arrays.fill(roundQtyArr, BigDecimal.ZERO);
-        Map<String, BigDecimal> qtyMap = new LinkedHashMap<>();
-        Map<String, String> unitMap = new LinkedHashMap<>();
-        Map<String, String> planMap = new LinkedHashMap<>();
-        Map<String, String> stationMap = new LinkedHashMap<>();
-        Map<String, String> whMap = new LinkedHashMap<>();
         // 记录每种物料本轮推了几"箱"（=sent_times 增量 = inFlight 增量）
         Map<String, Integer> roundSentTimesInc = new LinkedHashMap<>();
 
@@ -373,12 +368,6 @@ public class OneClickPickScheduler {
 
                 int idx = entries.indexOf(e);
                 roundQtyArr[idx] = roundQty;
-                qtyMap.merge(e.getMaterialCode(), roundQty, BigDecimal::add);
-                unitMap.putIfAbsent(e.getMaterialCode(), e.getUnitCode());
-                planMap.putIfAbsent(e.getMaterialCode(), e.getPlanCode() != null ? e.getPlanCode() : "");
-                stationMap.putIfAbsent(e.getMaterialCode(), e.getStationCode());
-                whMap.putIfAbsent(e.getMaterialCode(), e.getWarehouseCode());
-
                 pickedMaterials++;
                 pickedInFlightSum += 1;
                 roundSentTimesInc.put(e.getMaterialCode(), 1);
@@ -421,11 +410,6 @@ public class OneClickPickScheduler {
 
                 int idx = entries.indexOf(e);
                 roundQtyArr[idx] = roundQty;
-                qtyMap.merge(e.getMaterialCode(), roundQty, BigDecimal::add);
-                unitMap.putIfAbsent(e.getMaterialCode(), e.getUnitCode());
-                planMap.putIfAbsent(e.getMaterialCode(), e.getPlanCode() != null ? e.getPlanCode() : "");
-                stationMap.putIfAbsent(e.getMaterialCode(), e.getStationCode());
-                whMap.putIfAbsent(e.getMaterialCode(), e.getWarehouseCode());
 
                 pickedMaterials++;
                 pickedInFlightSum += actualBoxes;
@@ -448,11 +432,6 @@ public class OneClickPickScheduler {
 
                 int idx = entries.indexOf(e);
                 roundQtyArr[idx] = roundQty;
-                qtyMap.merge(e.getMaterialCode(), roundQty, BigDecimal::add);
-                unitMap.putIfAbsent(e.getMaterialCode(), e.getUnitCode());
-                planMap.putIfAbsent(e.getMaterialCode(), e.getPlanCode() != null ? e.getPlanCode() : "");
-                stationMap.putIfAbsent(e.getMaterialCode(), e.getStationCode());
-                whMap.putIfAbsent(e.getMaterialCode(), e.getWarehouseCode());
 
                 pickedMaterials++;
                 pickedInFlightSum += 1;
@@ -486,7 +465,22 @@ public class OneClickPickScheduler {
         data.put("CostCenterCode", task.getOrgCode());
         data.put("LineCode", task.getLineCode());
 
-        List<Map<String, Object>> wmsEntries = pickingService.fifoSplitWmsEntries(qtyMap, unitMap, planMap, stationMap, whMap);
+        List<Map<String, Object>> wmsEntries = new ArrayList<>();
+        int itemNo = 1;
+        for (int i = 0; i < entries.size(); i++) {
+            BigDecimal qty = roundQtyArr[i];
+            if (qty.compareTo(BigDecimal.ZERO) <= 0) continue;
+            WmsOneClickPickEntry e = entries.get(i);
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("ItemNo", itemNo++);
+            m.put("MaterialCode", e.getMaterialCode());
+            m.put("BatchCode", null);
+            m.put("Quantity", qty);
+            m.put("UnitCode", e.getUnitCode() != null ? e.getUnitCode() : "");
+            m.put("ProductionStationCode", e.getStationCode() != null ? e.getStationCode() : "3SC01");
+            m.put("OutWarehouseCode", e.getWarehouseCode() != null ? e.getWarehouseCode() : "2010");
+            wmsEntries.add(m);
+        }
         data.put("Entries", wmsEntries);
 
         log.info("[一键领料] taskId={} round={} billNo={} 推 WMS，物料={} 种",
@@ -565,8 +559,8 @@ public class OneClickPickScheduler {
             tu.eq("id", task.getId())
               .set("current_round", roundNum)
               .set("last_fire_time", now)
-              .set("success_count", task.getSuccessCount() + (finalWmsSuccess ? 1 : 0))
-              .set("fail_count", task.getFailCount() + (finalWmsSuccess ? 0 : 1))
+              .set("success_count", safeInt(task.getSuccessCount()) + (finalWmsSuccess ? 1 : 0))
+              .set("fail_count", safeInt(task.getFailCount()) + (finalWmsSuccess ? 0 : 1))
               .set("message", finalLogMessage != null && finalLogMessage.length() > 500
                     ? finalLogMessage.substring(0, 500) : finalLogMessage)
               .set("update_time", now);

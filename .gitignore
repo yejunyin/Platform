@@ -4,5 +4,10 @@ backend/eb-service-task/bin/
 frontend/node_modules/
 backend/eb-gateway/bin/
 backend/eb-common/bin/
+backend/.tools/
+backend/.vscode/
+.trae/
+.screenshots/
+.tools/
 target/
 frontend.zip

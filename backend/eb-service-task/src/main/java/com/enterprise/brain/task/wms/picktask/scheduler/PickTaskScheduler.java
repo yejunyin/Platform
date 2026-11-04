@@ -244,12 +244,6 @@ public class PickTaskScheduler {
         BigDecimal[] roundQtyArr = new BigDecimal[entries.size()];
         Arrays.fill(roundQtyArr, BigDecimal.ZERO);
 
-        Map<String, BigDecimal> qtyMap = new LinkedHashMap<>();
-        Map<String, String> unitMap = new LinkedHashMap<>();
-        Map<String, String> planMap = new LinkedHashMap<>();
-        Map<String, String> stationMap = new LinkedHashMap<>();
-        Map<String, String> whMap = new LinkedHashMap<>();
-
         int pickedMaterials = 0;
         for (int i = 0; i < entries.size(); i++) {
             WmsPickTaskEntry e = entries.get(i);
@@ -271,12 +265,6 @@ public class PickTaskScheduler {
             if (roundQty.compareTo(BigDecimal.ZERO) <= 0) continue;
 
             roundQtyArr[i] = roundQty;
-            qtyMap.put(e.getMaterialCode(), qtyMap.getOrDefault(e.getMaterialCode(), BigDecimal.ZERO).add(roundQty));
-            unitMap.putIfAbsent(e.getMaterialCode(), e.getUnitCode());
-            planMap.putIfAbsent(e.getMaterialCode(), e.getPlanCode() != null ? e.getPlanCode() : "");
-            stationMap.putIfAbsent(e.getMaterialCode(), e.getStationCode());
-            whMap.putIfAbsent(e.getMaterialCode(), e.getWarehouseCode());
-
             pickedMaterials++;
             if (pickedMaterials >= maxRoundMaterials) break;
         }
@@ -306,8 +294,20 @@ public class PickTaskScheduler {
         data.put("LineCode", task.getLineCode());
 
         List<Map<String, Object>> wmsEntries = new ArrayList<>();
-        if (!qtyMap.isEmpty()) {
-            wmsEntries = pickingService.fifoSplitWmsEntries(qtyMap, unitMap, planMap, stationMap, whMap);
+        int itemNo = 1;
+        for (int i = 0; i < entries.size(); i++) {
+            BigDecimal qty = roundQtyArr[i];
+            if (qty.compareTo(BigDecimal.ZERO) <= 0) continue;
+            WmsPickTaskEntry e = entries.get(i);
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("ItemNo", itemNo++);
+            m.put("MaterialCode", e.getMaterialCode());
+            m.put("BatchCode", null);
+            m.put("Quantity", qty);
+            m.put("UnitCode", e.getUnitCode() != null ? e.getUnitCode() : "");
+            m.put("ProductionStationCode", e.getStationCode() != null ? e.getStationCode() : "3SC01");
+            m.put("OutWarehouseCode", e.getWarehouseCode() != null ? e.getWarehouseCode() : "2010");
+            wmsEntries.add(m);
         }
         data.put("Entries", wmsEntries);
 
@@ -387,8 +387,8 @@ public class PickTaskScheduler {
             tu.eq("id", task.getId())
               .set("current_round", roundNum)
               .set("last_fire_time", now)
-              .set("success_count", task.getSuccessCount() + (finalWmsSuccess ? 1 : 0))
-              .set("fail_count", task.getFailCount() + (finalWmsSuccess ? 0 : 1))
+              .set("success_count", safeInt(task.getSuccessCount()) + (finalWmsSuccess ? 1 : 0))
+              .set("fail_count", safeInt(task.getFailCount()) + (finalWmsSuccess ? 0 : 1))
               .set("message", finalLogMessage != null && finalLogMessage.length() > 500
                     ? finalLogMessage.substring(0, 500) : finalLogMessage)
               .set("update_time", now);
@@ -448,6 +448,7 @@ public class PickTaskScheduler {
     }
 
     private BigDecimal safe(BigDecimal v) { return v != null ? v : BigDecimal.ZERO; }
+    private int safeInt(Integer v) { return v != null ? v : 0; }
 
     // ============ 外部控制方法 ============
 
