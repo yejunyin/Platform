@@ -68,6 +68,12 @@ public class WmsPickTaskController {
         return Result.success(pickTaskService.cancel(id));
     }
 
+    @PostMapping("/{id}/force-complete")
+    @Operation(summary = "终止运行中任务：按轮次×单次数量核算已发数量，标记完成")
+    public Result<WmsPickTask> forceComplete(@PathVariable Long id) {
+        return Result.success(pickTaskService.forceComplete(id));
+    }
+
     @GetMapping("/page")
     @Operation(summary = "分页查定时任务列表")
     public Result<Page<WmsPickTask>> page(

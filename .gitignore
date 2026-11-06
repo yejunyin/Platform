@@ -11,3 +11,6 @@ backend/.vscode/
 .tools/
 target/
 frontend.zip
+logs/
+backend/eb-service-task/logs/
+backend/eb-service-task/logs/

@@ -165,35 +165,54 @@ public class WmsPickingService {
                 .collect(Collectors.toList());
         if (materialCodes.isEmpty()) return;
 
-        // BD_MATERIAL 基础资料 按 FNumber 查 FBoxStandardQty
-        StringBuilder inClause = new StringBuilder();
-        for (int i = 0; i < materialCodes.size(); i++) {
-            if (i > 0) inClause.append(',');
-            inClause.append('\'').append(materialCodes.get(i).replace("'", "''")).append('\'');
-        }
-        String filter = "FNumber in (" + inClause + ")";
-
+        // BD_MATERIAL 按 FNumber 查 FBoxStandardQty
+        // 分批查，每批 ≤50 个：金蝶 ExecuteBillQuery Limit 会先排序再截断，
+        // 一次塞太多物料会导致排在后面的被截掉，默认值=1。
+        final int BATCH_SIZE = 50;
         Map<String, BigDecimal> boxMap = new HashMap<>();
-        try {
-            List<JsonNode> rows = kingdeeService.executeBillQuery("BD_MATERIAL",
-                    "FNumber,FBoxStandardQty",
-                    filter, null, materialCodes.size());
-            for (JsonNode row : rows) {
-                if (!row.isArray() || row.size() < 2) continue;
-                String mc = kingdeeService.textOf(row.get(0));
-                BigDecimal qty = kingdeeService.decimalOf(row.get(1));
-                if (mc != null && qty != null && qty.compareTo(BigDecimal.ZERO) > 0) {
-                    boxMap.put(mc.trim(), qty);
-                }
+        int totalRows = 0;
+        for (int offset = 0; offset < materialCodes.size(); offset += BATCH_SIZE) {
+            int end = Math.min(offset + BATCH_SIZE, materialCodes.size());
+            List<String> batch = materialCodes.subList(offset, end);
+
+            StringBuilder inClause = new StringBuilder();
+            for (int i = 0; i < batch.size(); i++) {
+                if (i > 0) inClause.append(',');
+                inClause.append('\'').append(batch.get(i).replace("'", "''")).append('\'');
             }
-            log.info("[WMS叫料] 查金蝶 BD_MATERIAL FBoxStandardQty 请求物料={} 有标准装箱数={}",
-                    materialCodes.size(), boxMap.size());
-        } catch (Exception e) {
-            log.warn("[WMS叫料] 查 BD_MATERIAL FBoxStandardQty 失败，跳过填充: {}", e.getMessage());
+            String filter = "FNumber in (" + inClause + ")";
+            // Limit 放宽到批次大小的 10 倍，防金蝶返回重复行时截断有效值
+            int limit = Math.max(200, batch.size() * 10);
+
+            try {
+                List<JsonNode> rows = kingdeeService.executeBillQuery("BD_MATERIAL",
+                        "FNumber,FBoxStandardQty", filter, null, limit);
+                totalRows += rows.size();
+                for (JsonNode row : rows) {
+                    if (!row.isArray() || row.size() < 2) continue;
+                    String mc = kingdeeService.textOf(row.get(0));
+                    BigDecimal qty = kingdeeService.decimalOf(row.get(1));
+                    if (mc != null && qty != null && qty.compareTo(BigDecimal.ZERO) > 0) {
+                        boxMap.put(mc.trim(), qty);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[WMS叫料] BD_MATERIAL 批次查询(offset={})失败: {}", offset, e.getMessage());
+            }
         }
+        log.info("[WMS叫料] 查金蝶 BD_MATERIAL FBoxStandardQty 物料数={} 批次={} 返回行={} 命中={}",
+                materialCodes.size(), (materialCodes.size() + BATCH_SIZE - 1) / BATCH_SIZE,
+                totalRows, boxMap.size());
 
         for (WmsPpbomRowVO vo : ppbomRows) {
-            vo.setBoxStandardQty(boxMap.getOrDefault(vo.getMaterialCode(), BigDecimal.ONE));
+            String key = vo.getMaterialCode() == null ? null : vo.getMaterialCode().trim();
+            BigDecimal box = boxMap.get(key);
+            if (box == null && key != null) {
+                // 再试大写 / 小写
+                box = boxMap.get(key.toUpperCase());
+                if (box == null) box = boxMap.get(key.toLowerCase());
+            }
+            vo.setBoxStandardQty(box != null ? box : BigDecimal.ONE);
         }
     }
 

@@ -11,18 +11,15 @@ import com.enterprise.brain.task.wms.oneclickpick.mapper.WmsOneClickPickLogMappe
 import com.enterprise.brain.task.wms.oneclickpick.mapper.WmsOneClickPickMapper;
 import com.enterprise.brain.task.service.WmsService;
 import com.enterprise.brain.task.wms.service.WmsPickingService;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.enterprise.brain.task.wms.service.WmsShelfInventoryCache;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.ResponseEntity;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -65,18 +62,13 @@ public class OneClickPickScheduler {
     private WmsPickingService pickingService;
 
     @Resource
+    private WmsShelfInventoryCache shelfInventoryCache;
+
+    @Resource
     private PlatformTransactionManager transactionManager;
 
     @Value("${one-click-pick.enabled:false}")
     private boolean enabled;
-
-    /** WMS 料架库存查询地址 */
-    @Value("${one-click-pick.shelf-url:http://192.168.15.20:8081/prod-api/api/upperSystem/shelf/inventory}")
-    private String shelfInventoryUrl;
-
-    /** WMS 料架库存查询超时（毫秒） */
-    @Value("${one-click-pick.shelf-timeout-ms:3000}")
-    private int shelfTimeoutMs;
 
     /** WMS 单次推送最多物料种类（对应 48 箱 / 6 货架 限制） */
     @Value("${one-click-pick.max-round-materials:48}")
@@ -94,9 +86,6 @@ public class OneClickPickScheduler {
 
     /** taskId → 运行中标记 */
     private final ConcurrentMap<Long, AtomicBoolean> runningFlags = new ConcurrentHashMap<>();
-
-    /** 专用 RestTemplate（只读 shelf inventory） */
-    private volatile RestTemplate shelfRestTemplate;
 
     // ============ 初始化 ============
 
@@ -116,20 +105,6 @@ public class OneClickPickScheduler {
         restoreRunningTasks();
     }
 
-    private RestTemplate getShelfRestTemplate() {
-        if (shelfRestTemplate == null) {
-            synchronized (this) {
-                if (shelfRestTemplate == null) {
-                    SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-                    factory.setConnectTimeout(shelfTimeoutMs);
-                    factory.setReadTimeout(shelfTimeoutMs);
-                    shelfRestTemplate = new RestTemplate(factory);
-                }
-            }
-        }
-        return shelfRestTemplate;
-    }
-
     private void restoreRunningTasks() {
         List<WmsOneClickPick> running = taskMapper.selectList(
                 new QueryWrapper<WmsOneClickPick>().eq("status", "running"));
@@ -137,48 +112,6 @@ public class OneClickPickScheduler {
         for (WmsOneClickPick task : running) {
             scheduleNext(task, task.getNextFireTime());
         }
-    }
-
-    // ============ 料架库存查询 ============
-
-    /**
-     * 查 WMS 料架库存接口
-     * @return Map<productionNo, Map<materialCode, quantityOnShelf>>
-     */
-    private Map<String, Map<String, BigDecimal>> queryShelfInventory() {
-        Map<String, Map<String, BigDecimal>> result = new HashMap<>();
-        try {
-            ResponseEntity<String> resp = getShelfRestTemplate().getForEntity(shelfInventoryUrl, String.class);
-            if (!resp.getStatusCode().is2xxSuccessful() || resp.getBody() == null) {
-                log.warn("[一键领料] 料架接口 HTTP {}，跳过料架驱动，本轮全部放行", resp.getStatusCode());
-                return result;
-            }
-            JsonNode root = objectMapper.readTree(resp.getBody());
-            if (root.path("Success").asBoolean() != true) {
-                log.warn("[一键领料] 料架接口 Success=false，Message={}，跳过料架驱动", root.path("Message").asText());
-                return result;
-            }
-            JsonNode shelves = root.path("Data").path("Shelves");
-            if (!shelves.isArray()) return result;
-
-            for (JsonNode shelf : shelves) {
-                JsonNode items = shelf.path("Items");
-                if (!items.isArray()) continue;
-                for (JsonNode item : items) {
-                    String prodNo = item.path("ProdctionNo").asText();
-                    String mc = item.path("MaterialCode").asText();
-                    BigDecimal qty = new BigDecimal(item.path("Quantity").asInt(0));
-                    if (prodNo.isBlank() || mc.isBlank()) continue;
-
-                    result.computeIfAbsent(prodNo, k -> new HashMap<>())
-                          .merge(mc, qty, BigDecimal::add);
-                }
-            }
-            log.info("[一键领料] 料架查询成功，涉及生产订单 {} 个", result.size());
-        } catch (Exception ex) {
-            log.warn("[一键领料] 料架查询失败（{}），跳过料架驱动，本轮全部放行: {}", shelfInventoryUrl, ex.getMessage());
-        }
-        return result;
     }
 
     // ============ 调度控制 ============
@@ -233,10 +166,12 @@ public class OneClickPickScheduler {
 
         LocalDateTime now = LocalDateTime.now();
 
-        // ========== Phase A: 查 WMS 料架 → 闭环确认"释放成功" ==========
-        Map<String, Map<String, BigDecimal>> shelfMap = queryShelfInventory();
-        Map<String, BigDecimal> shelfForTask = shelfMap.getOrDefault(task.getProductionNo(), Collections.emptyMap());
-        boolean shelfAvailable = !shelfMap.isEmpty();
+        // ========== Phase A: 查 WMS 料架缓存 → 闭环确认"释放成功" ==========
+        Map<String, Map<String, BigDecimal>> shelfMap = shelfInventoryCache.getShelfInventory();
+        Map<String, BigDecimal> shelfForTask = shelfMap.getOrDefault(
+                task.getProductionNo() != null ? task.getProductionNo().toUpperCase() : "",
+                Collections.emptyMap());
+        boolean shelfAvailable = shelfInventoryCache.isAvailable();
 
         int releasedDelta = 0;   // 本轮因释放而增加的 sentQty 次数（>0 表示"查到物料被输送"）
         int confirmedDelta = 0; // 本轮新确认上料次数
@@ -246,32 +181,30 @@ public class OneClickPickScheduler {
             for (WmsOneClickPickEntry e : entries) {
                 BigDecimal prev = e.getLastOnShelfQty();
                 if (prev == null) prev = BigDecimal.ZERO;
-                BigDecimal curr = shelfForTask.getOrDefault(e.getMaterialCode(), BigDecimal.ZERO);
+                BigDecimal curr = shelfForTask.getOrDefault(
+                        e.getMaterialCode() != null ? e.getMaterialCode().toUpperCase() : "", BigDecimal.ZERO);
 
                 boolean prevZero = prev.compareTo(BigDecimal.ZERO) == 0;
                 boolean currZero = curr.compareTo(BigDecimal.ZERO) == 0;
 
                 if (!prevZero && currZero) {
-                    // ── 情况1: 料架上之前有，现在没了 → WMS 释放成功 ──
-                    BigDecimal newSent = safe(e.getSentQty()).add(e.getPerBoxQty());
+                    // ── 情况1: 料架上之前有，现在没了 → WMS 释放成功（状态跟踪，不累加 sentQty） ──
                     int newReleased = safeInt(e.getReleasedTimes()) + 1;
                     int newConfirmed = safeInt(e.getConfirmedTimes()) + 1;
                     UpdateWrapper<WmsOneClickPickEntry> uw = new UpdateWrapper<>();
                     uw.eq("id", e.getId())
-                      .set("sent_qty", newSent)
                       .set("released_times", newReleased)
                       .set("confirmed_times", newConfirmed)
                       .set("last_on_shelf_qty", BigDecimal.ZERO)
                       .set("last_confirmed_time", now)
                       .set("update_time", now);
                     entryMapper.update(null, uw);
-                    e.setSentQty(newSent);
                     e.setReleasedTimes(newReleased);
                     e.setConfirmedTimes(newConfirmed);
                     e.setLastOnShelfQty(BigDecimal.ZERO);
                     releasedDelta++;
-                    log.info("[一键领料] taskId={} 物料 {} 料架释放（prev={}→curr=0），sentQty→{} released_times→{}",
-                            taskId, e.getMaterialCode(), prev, newSent, newReleased);
+                    log.info("[一键领料] taskId={} 物料 {} 料架释放（prev={}→curr=0），released_times→{}",
+                            taskId, e.getMaterialCode(), prev, newReleased);
 
                 } else if (prevZero && !currZero) {
                     // ── 情况2: 之前无，现在有 → WMS 刚上料 ──
@@ -533,8 +466,10 @@ public class OneClickPickScheduler {
                 int incTimes = finalRoundSentTimesInc.getOrDefault(e.getMaterialCode(), 1);
                 int newSentTimes = safeInt(e.getSentTimes()) + incTimes;
                 int newCurRound = safeInt(e.getCurrentRound()) + 1;
+                BigDecimal newSentQty = safe(e.getSentQty()).add(rq);
                 UpdateWrapper<WmsOneClickPickEntry> uw = new UpdateWrapper<>();
                 uw.eq("id", e.getId())
+                  .set("sent_qty", newSentQty)
                   .set("sent_times", newSentTimes)
                   .set("current_round", newCurRound)
                   .set("update_time", now);
@@ -634,19 +569,24 @@ public class OneClickPickScheduler {
     private int safeInt(Integer v) { return v != null ? v : 0; }
 
     /**
-     * 根据"是否查到物料被输送"决定下一轮延迟：
-     *   releasedDelta > 0 → 料架驱动：快速再查（5 秒后）
-     *   releasedDelta == 0 → 保底：按 intervalSec 间隔（分钟 × 60）
+     * 根据"是否查到物料被输送"决定下一轮延迟（双重保险）：
+     *   1. releasedDelta > 0 —— Scheduler 自己对比 entry.lastOnShelfQty 检测到释放
+     *   2. 快照层全局对比（DB 前后代）检测到该 productionNo 有物料消失
+     *   满足任一 → 快速再查（5 秒后）；否则保底 intervalSec 间隔
      */
     private long computeDelaySec(WmsOneClickPick task, int releasedDelta) {
-        if (releasedDelta > 0) {
-            log.info("[一键领料] taskId={} 查到物料被输送(releasedDelta={})，下一轮 5s 后执行",
-                    task.getId(), releasedDelta);
+        String prodNo = task.getProductionNo() != null ? task.getProductionNo().toUpperCase() : "";
+        boolean snapDisappeared = shelfInventoryCache.isAvailable()
+                && !shelfInventoryCache.getDisappearedMaterials(prodNo).isEmpty();
+
+        if (releasedDelta > 0 || snapDisappeared) {
+            log.info("[一键领料] taskId={} 快速轮询(releasedDelta={}, snapDisappeared={})，下一轮 5s 后执行",
+                    task.getId(), releasedDelta, snapDisappeared);
             return 5;
         }
         long fallbackMin = task.getIntervalSec() == null ? 1 : task.getIntervalSec();
         long fallbackSec = fallbackMin * 60;
-        log.info("[一键领料] taskId={} 未查到物料被输送，按保底间隔 {}s 后执行", task.getId(), fallbackSec);
+        log.info("[一键领料] taskId={} 未检测到料架变化，按保底间隔 {}s 后执行", task.getId(), fallbackSec);
         return fallbackSec;
     }
 
@@ -682,11 +622,16 @@ public class OneClickPickScheduler {
         log.info("[一键领料] taskId={} 已恢复", taskId);
     }
 
-    public void cancelTask(long taskId) {
+    /** 停掉定时器（不碰 DB）—— forceComplete 和 cancelTask 共用 */
+    public void stopTask(long taskId) {
         AtomicBoolean flag = runningFlags.get(taskId);
         if (flag != null) flag.set(false);
         ScheduledFuture<?> f = futures.remove(taskId);
         if (f != null) f.cancel(false);
+    }
+
+    public void cancelTask(long taskId) {
+        stopTask(taskId);
         UpdateWrapper<WmsOneClickPick> uw = new UpdateWrapper<>();
         uw.eq("id", taskId).set("status", "cancelled").set("update_time", LocalDateTime.now());
         taskMapper.update(null, uw);

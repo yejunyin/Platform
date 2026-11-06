@@ -1,6 +1,7 @@
 package com.enterprise.brain.task.wms.oneclickpick.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.enterprise.brain.common.exception.BusinessException;
 import com.enterprise.brain.task.wms.oneclickpick.dto.WmsOneClickPickCreateRequest;
@@ -167,6 +168,78 @@ public class WmsOneClickPickService {
         WmsOneClickPick task = taskMapper.selectById(taskId);
         if (task == null) throw new BusinessException("任务不存在");
         scheduler.cancelTask(taskId);
+        return taskMapper.selectById(taskId);
+    }
+
+    /**
+     * 强制终止任务：停止定时器 + 按"轮次 × 单次数量"核算每个明细行的已发数量。
+     *  - 如果 entry 已发满（sentQty >= totalQty）则跳过不计算
+     *  - 计算值上限 totalQty
+     *  - 任务头状态置为 completed（保留在 DB，继续计入"已有一键承诺"）
+     */
+    public WmsOneClickPick forceComplete(Long taskId) {
+        WmsOneClickPick task = taskMapper.selectById(taskId);
+        if (task == null) throw new BusinessException("任务不存在");
+        if ("completed".equals(task.getStatus()) || "cancelled".equals(task.getStatus())) {
+            throw new BusinessException("任务已结束，不能终止");
+        }
+
+        // 1. 停掉定时调度
+        scheduler.stopTask(taskId);
+
+        // 2. 事务内：更新 entries.sent_qty + 任务头 → completed
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        tx.execute(status -> {
+            LocalDateTime now = LocalDateTime.now();
+            List<WmsOneClickPickEntry> entries = entryMapper.selectList(
+                    new QueryWrapper<WmsOneClickPickEntry>().eq("task_id", taskId));
+
+            int adjustedCount = 0;
+            int alreadyFullCount = 0;
+            BigDecimal totalAdjustQty = BigDecimal.ZERO;
+
+            for (WmsOneClickPickEntry e : entries) {
+                BigDecimal sent = e.getSentQty() != null ? e.getSentQty() : BigDecimal.ZERO;
+                BigDecimal total = e.getTotalQty() != null ? e.getTotalQty() : BigDecimal.ZERO;
+                BigDecimal perBox = e.getPerBoxQty() != null ? e.getPerBoxQty() : BigDecimal.ZERO;
+                int curRound = e.getCurrentRound() == null ? 0 : e.getCurrentRound();
+
+                // 已发满 → 跳过
+                if (sent.compareTo(total) >= 0) {
+                    alreadyFullCount++;
+                    continue;
+                }
+
+                // 按公式核算：轮次 × 单次数量，上限 totalQty
+                BigDecimal calc = perBox.multiply(BigDecimal.valueOf(curRound));
+                if (calc.compareTo(total) > 0) calc = total;
+
+                if (calc.compareTo(sent) != 0) {
+                    UpdateWrapper<WmsOneClickPickEntry> uw = new UpdateWrapper<>();
+                    uw.eq("id", e.getId())
+                      .set("sent_qty", calc)
+                      .set("update_time", now);
+                    entryMapper.update(null, uw);
+                    totalAdjustQty = totalAdjustQty.add(calc.subtract(sent));
+                    adjustedCount++;
+                    log.info("[一键领料·终止] taskId={} entryId={} material={} sentQty {} → {} (round={}, perBox={})",
+                            taskId, e.getId(), e.getMaterialCode(), sent, calc, curRound, perBox);
+                }
+            }
+
+            // 更新任务头
+            UpdateWrapper<WmsOneClickPick> uw = new UpdateWrapper<>();
+            uw.eq("id", taskId)
+              .set("status", "completed")
+              .set("message", "用户手动终止：已按轮次核算已发数量")
+              .set("update_time", now);
+            taskMapper.update(null, uw);
+
+            log.info("[一键领料·终止] taskId={} 已终止，明细行={}，已发满跳过={}，调整={}行，净增量={}",
+                    taskId, entries.size(), alreadyFullCount, adjustedCount, totalAdjustQty);
+            return null;
+        });
+
         return taskMapper.selectById(taskId);
     }
 

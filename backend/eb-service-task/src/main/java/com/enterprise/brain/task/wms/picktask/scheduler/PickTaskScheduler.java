@@ -11,18 +11,15 @@ import com.enterprise.brain.task.wms.picktask.mapper.WmsPickTaskLogMapper;
 import com.enterprise.brain.task.wms.picktask.mapper.WmsPickTaskMapper;
 import com.enterprise.brain.task.service.WmsService;
 import com.enterprise.brain.task.wms.service.WmsPickingService;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.enterprise.brain.task.wms.service.WmsShelfInventoryCache;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.ResponseEntity;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -62,16 +59,13 @@ public class PickTaskScheduler {
     private WmsPickingService pickingService;
 
     @Resource
+    private WmsShelfInventoryCache shelfInventoryCache;
+
+    @Resource
     private PlatformTransactionManager transactionManager;
 
     @Value("${pick-task.enabled:false}")
     private boolean enabled;
-
-    @Value("${pick-task.shelf-url:http://192.168.15.20:8081/prod-api/api/upperSystem/shelf/inventory}")
-    private String shelfInventoryUrl;
-
-    @Value("${pick-task.shelf-timeout-ms:3000}")
-    private int shelfTimeoutMs;
 
     @Value("${pick-task.max-round-materials:48}")
     private int maxRoundMaterials;
@@ -84,8 +78,6 @@ public class PickTaskScheduler {
     private ScheduledThreadPoolExecutor scheduler;
     private final ConcurrentMap<Long, ScheduledFuture<?>> futures = new ConcurrentHashMap<>();
     private final ConcurrentMap<Long, AtomicBoolean> runningFlags = new ConcurrentHashMap<>();
-
-    private volatile RestTemplate shelfRestTemplate;
 
     @PostConstruct
     public void init() {
@@ -102,20 +94,6 @@ public class PickTaskScheduler {
         restoreRunningTasks();
     }
 
-    private RestTemplate getShelfRestTemplate() {
-        if (shelfRestTemplate == null) {
-            synchronized (this) {
-                if (shelfRestTemplate == null) {
-                    SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-                    factory.setConnectTimeout(shelfTimeoutMs);
-                    factory.setReadTimeout(shelfTimeoutMs);
-                    shelfRestTemplate = new RestTemplate(factory);
-                }
-            }
-        }
-        return shelfRestTemplate;
-    }
-
     private void restoreRunningTasks() {
         List<WmsPickTask> running = taskMapper.selectList(
                 new QueryWrapper<WmsPickTask>().eq("status", "running"));
@@ -123,46 +101,6 @@ public class PickTaskScheduler {
         for (WmsPickTask task : running) {
             scheduleNext(task, task.getNextFireTime());
         }
-    }
-
-    /**
-     * 查 WMS 料架库存接口
-     * @return Map<productionNo, Map<materialCode, quantityOnShelf>>
-     */
-    private Map<String, Map<String, BigDecimal>> queryShelfInventory() {
-        Map<String, Map<String, BigDecimal>> result = new HashMap<>();
-        try {
-            ResponseEntity<String> resp = getShelfRestTemplate().getForEntity(shelfInventoryUrl, String.class);
-            if (!resp.getStatusCode().is2xxSuccessful() || resp.getBody() == null) {
-                log.warn("[定时领料] 料架接口 HTTP {}，跳过料架驱动", resp.getStatusCode());
-                return result;
-            }
-            JsonNode root = objectMapper.readTree(resp.getBody());
-            if (root.path("Success").asBoolean() != true) {
-                log.warn("[定时领料] 料架接口 Success=false，Message={}", root.path("Message").asText());
-                return result;
-            }
-            JsonNode shelves = root.path("Data").path("Shelves");
-            if (!shelves.isArray()) return result;
-
-            for (JsonNode shelf : shelves) {
-                JsonNode items = shelf.path("Items");
-                if (!items.isArray()) continue;
-                for (JsonNode item : items) {
-                    String prodNo = item.path("ProdctionNo").asText();
-                    String mc = item.path("MaterialCode").asText();
-                    BigDecimal qty = new BigDecimal(item.path("Quantity").asInt(0));
-                    if (prodNo.isBlank() || mc.isBlank()) continue;
-
-                    result.computeIfAbsent(prodNo, k -> new HashMap<>())
-                          .merge(mc, qty, BigDecimal::add);
-                }
-            }
-            log.info("[定时领料] 料架查询成功，涉及生产订单 {} 个", result.size());
-        } catch (Exception ex) {
-            log.warn("[定时领料] 料架查询失败（{}），跳过料架驱动: {}", shelfInventoryUrl, ex.getMessage());
-        }
-        return result;
     }
 
     public void scheduleNext(WmsPickTask task, long delaySec) {
@@ -231,16 +169,18 @@ public class PickTaskScheduler {
         }
         if (allDone) { completeTask(task, "所有明细发料已满"); return; }
 
-        // 查料架
-        Map<String, Map<String, BigDecimal>> shelfMap = queryShelfInventory();
-        Map<String, BigDecimal> shelfForTask = shelfMap.getOrDefault(task.getProductionNo(), Collections.emptyMap());
-        boolean shelfAvailable = !shelfMap.isEmpty();
+        // 查料架缓存
+        Map<String, Map<String, BigDecimal>> shelfMap = shelfInventoryCache.getShelfInventory();
+        Map<String, BigDecimal> shelfForTask = shelfMap.getOrDefault(
+                task.getProductionNo() != null ? task.getProductionNo().toUpperCase() : "",
+                Collections.emptyMap());
+        boolean shelfAvailable = shelfInventoryCache.isAvailable();
 
         boolean relax = remainingCount <= relaxThreshold;
         log.info("[定时领料] taskId={} remainingCount={} relax={} shelfAvailable={}",
                 taskId, remainingCount, relax, shelfAvailable);
 
-        // 筛选本轮可推
+        // 筛选本轮可推（先走正常模式：料架有就不推；如果全被料架阻塞，再强制松绑推）
         BigDecimal[] roundQtyArr = new BigDecimal[entries.size()];
         Arrays.fill(roundQtyArr, BigDecimal.ZERO);
 
@@ -252,7 +192,8 @@ public class PickTaskScheduler {
 
             boolean blockByShelf = false;
             if (shelfAvailable && !relax) {
-                BigDecimal onShelf = shelfForTask.getOrDefault(e.getMaterialCode(), BigDecimal.ZERO);
+                BigDecimal onShelf = shelfForTask.getOrDefault(
+                        e.getMaterialCode() != null ? e.getMaterialCode().toUpperCase() : "", BigDecimal.ZERO);
                 if (onShelf.compareTo(BigDecimal.ZERO) > 0) {
                     blockByShelf = true;
                     log.info("[定时领料] taskId={} 物料 {} 料架上有 {}，暂不推送",
@@ -269,9 +210,25 @@ public class PickTaskScheduler {
             if (pickedMaterials >= maxRoundMaterials) break;
         }
 
-        // 本轮无物料可推 → 直接安排下次轮询
+        // 如果全被料架阻塞 + 还有剩余未发满 → 强制跳过料架约束再推一次（防卡死）
+        if (pickedMaterials == 0 && remainingCount > 0) {
+            log.info("[定时领料] taskId={} 全部 {} 种物料被料架阻塞，强制松绑重试", taskId, remainingCount);
+            Arrays.fill(roundQtyArr, BigDecimal.ZERO);
+            pickedMaterials = 0;
+            for (int i = 0; i < entries.size(); i++) {
+                if (pickedMaterials >= maxRoundMaterials) break;
+                WmsPickTaskEntry e = entries.get(i);
+                BigDecimal left = e.getTotalQty().subtract(safe(e.getSentQty()));
+                if (left.compareTo(BigDecimal.ZERO) <= 0) continue;
+                BigDecimal roundQty = left.min(e.getPerBoxQty());
+                if (roundQty.compareTo(BigDecimal.ZERO) <= 0) continue;
+                roundQtyArr[i] = roundQty;
+                pickedMaterials++;
+            }
+        }
+
         if (pickedMaterials == 0) {
-            log.info("[定时领料] taskId={} 本轮无可推物料，安排下一次轮询", taskId);
+            log.info("[定时领料] taskId={} 本轮无可推物料（全部发满），安排下一次轮询", taskId);
             scheduleNext(task, task.getIntervalSec() == null ? 60 : task.getIntervalSec() * 60);
             return;
         }
@@ -414,10 +371,18 @@ public class PickTaskScheduler {
             return;
         }
 
-        // 安排下次轮询
+        // 安排下次轮询（快照对比加速：检测到料架有物料消失时 5 秒后再查）
         WmsPickTask latest = taskMapper.selectById(taskId);
         if ("running".equals(latest.getStatus())) {
-            scheduleNext(latest, latest.getNextFireTime());
+            String prodNo = latest.getProductionNo() != null ? latest.getProductionNo().toUpperCase() : "";
+            boolean snapDisappeared = shelfInventoryCache.isAvailable()
+                    && !shelfInventoryCache.getDisappearedMaterials(prodNo).isEmpty();
+            if (snapDisappeared) {
+                log.info("[定时领料] taskId={} 快照对比检测到料架变化，下一轮 5s 后执行", taskId);
+                scheduleNext(latest, 5);
+            } else {
+                scheduleNext(latest, latest.getNextFireTime());
+            }
         }
     }
 
@@ -482,11 +447,16 @@ public class PickTaskScheduler {
         log.info("[定时领料] taskId={} 已恢复", taskId);
     }
 
-    public void cancelTask(long taskId) {
+    /** 停掉定时器（不碰 DB）—— forceComplete 和 cancelTask 共用 */
+    public void stopTask(long taskId) {
         AtomicBoolean flag = runningFlags.get(taskId);
         if (flag != null) flag.set(false);
         ScheduledFuture<?> f = futures.remove(taskId);
         if (f != null) f.cancel(false);
+    }
+
+    public void cancelTask(long taskId) {
+        stopTask(taskId);
         UpdateWrapper<WmsPickTask> uw = new UpdateWrapper<>();
         uw.eq("id", taskId).set("status", "cancelled").set("update_time", LocalDateTime.now());
         taskMapper.update(null, uw);

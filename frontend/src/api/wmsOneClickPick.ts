@@ -113,6 +113,11 @@ export const wmsOneClickPickApi = {
     return request.post(`/wms-one-click-pick/${id}/cancel`)
   },
 
+  /** 终止运行中任务：按轮次×单次数量核算已发数量 */
+  forceComplete(id: number): AxiosPromise<OneClickPickHead> {
+    return request.post(`/wms-one-click-pick/${id}/force-complete`)
+  },
+
   /** 分页查任务列表 */
   page(
     pageNum = 1,

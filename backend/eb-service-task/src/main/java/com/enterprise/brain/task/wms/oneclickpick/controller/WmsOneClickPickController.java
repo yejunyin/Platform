@@ -68,6 +68,12 @@ public class WmsOneClickPickController {
         return Result.success(oneClickPickService.cancel(id));
     }
 
+    @PostMapping("/{id}/force-complete")
+    @Operation(summary = "终止运行中任务：按轮次×单次数量核算已发数量，标记完成")
+    public Result<WmsOneClickPick> forceComplete(@PathVariable Long id) {
+        return Result.success(oneClickPickService.forceComplete(id));
+    }
+
     @GetMapping("/page")
     @Operation(summary = "分页查一键领料任务列表")
     public Result<Page<WmsOneClickPick>> page(

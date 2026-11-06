@@ -57,6 +57,7 @@
             <el-icon><Van /></el-icon>
             <template #title>WMS叫料</template>
           </el-menu-item>
+          <!-- 定时领料 & 一键领料 暂时隐藏（后端保留）
           <el-menu-item index="/task/wms-pick-task">
             <el-icon><Timer /></el-icon>
             <template #title>定时领料任务</template>
@@ -65,6 +66,7 @@
             <el-icon><Lightning /></el-icon>
             <template #title>一键领料</template>
           </el-menu-item>
+          -->
         </el-sub-menu>
         <el-sub-menu index="/qms">
           <template #title>

@@ -166,6 +166,11 @@
                 />
               </template>
             </el-table-column>
+            <el-table-column label="单框数量" width="110" align="right">
+              <template #default="{ row }">
+                <span class="mono">{{ row.boxStandardQty?.toFixed(2) ?? '—' }}</span>
+              </template>
+            </el-table-column>
             <el-table-column label="单次数量" width="150" align="right">
               <template #default="{ row }">
                 <el-input-number
@@ -387,11 +392,17 @@
             </el-table-column>
             <el-table-column label="最近消息" prop="message" min-width="200" show-overflow-tooltip />
             <el-table-column label="创建时间" prop="createTime" width="170" />
-            <el-table-column label="操作" width="200" fixed="right">
+            <el-table-column label="操作" width="260" fixed="right">
               <template #default="{ row }">
                 <el-button v-if="row.status === 'pending'" type="success" size="small" @click="doStart(row.id)">启动</el-button>
                 <el-button v-if="row.status === 'running'" type="warning" size="small" @click="doPause(row.id)">暂停</el-button>
                 <el-button v-if="row.status === 'paused'" type="success" size="small" @click="doResume(row.id)">恢复</el-button>
+                <el-button
+                  v-if="row.status === 'running' || row.status === 'paused'"
+                  type="primary" size="small" plain
+                  :loading="forcingTaskId === row.id"
+                  @click="doForceComplete(row)"
+                >终止</el-button>
                 <el-button
                   v-if="row.status !== 'completed' && row.status !== 'cancelled'"
                   type="danger" size="small" plain
@@ -493,10 +504,14 @@ function isAdded(row: PpbomRow) {
 }
 function addToTask(row: PpbomRow) {
   if (isAdded(row)) return
+  const box = Number(row.boxStandardQty ?? 1)
+  const need = Number(row.needQty ?? box)
+  // 单次数量默认取单框数量，如果需求数量 < 单框数量则取需求数量
+  const perBoxDefault = Math.min(box, need)
   taskItems.value.push({
     ...row,
     _totalQty: Number(row.remainingQty ?? row.needQty ?? 0),
-    _perBox: Number(row.boxStandardQty ?? 1), // 默认取金蝶 FBoxStandardQty
+    _perBox: perBoxDefault,
     _stationCode: '3SC01',
   })
 }
@@ -707,6 +722,51 @@ async function doCancel(id: number) {
     ElMessage.success('任务已取消')
     loadList(listPageNum.value)
   } catch (e: any) { if ((e as any) !== 'cancel') ElMessage.error((e as any)?.message || '取消失败') }
+}
+
+const forcingTaskId = ref<number | null>(null)
+
+async function doForceComplete(row: any) {
+  const entries: any[] = row.entries || []
+  const preview = entries
+    .filter((e: any) => Number(e.sentQty ?? 0) < Number(e.totalQty ?? 0))
+    .map((e: any) => {
+      const round = Number(e.currentRound ?? 0)
+      const perBox = Number(e.perBoxQty ?? 0)
+      const total = Number(e.totalQty ?? 0)
+      const calc = Math.min(round * perBox, total)
+      return `  ${e.materialCode} ${e.materialName ?? ''} · 已发 ${Number(e.sentQty ?? 0).toFixed(2)} → ${calc.toFixed(2)}（${round}轮×${perBox}）`
+    })
+
+  const header = [
+    `任务单号：${row.taskNo}`,
+    `生产订单：${row.productionNo}`,
+    `当前状态：${statusLabel(row.status)}`,
+    '',
+    '本次终止将按"轮次 × 单次数量"核算已发数量，已发满的跳过。',
+    '核算结果如下：',
+    preview.length > 0 ? preview.join('\n') : '（所有物料已发满，无需要调整）',
+  ].join('\n')
+
+  try {
+    await ElMessageBox.confirm(header, '终止任务确认', {
+      type: 'warning',
+      confirmButtonText: '确认终止',
+      confirmButtonClass: 'el-button--danger',
+      dangerouslyUseHTMLString: false,
+    })
+  } catch { return }
+
+  forcingTaskId.value = row.id
+  try {
+    await wmsPickTaskApi.forceComplete(row.id)
+    ElMessage.success('任务已终止，已发数量已按轮次核算')
+    loadList(listPageNum.value)
+  } catch (e: any) {
+    ElMessage.error(e?.message || '终止失败')
+  } finally {
+    forcingTaskId.value = null
+  }
 }
 
 function statusLabel(s?: string) {
