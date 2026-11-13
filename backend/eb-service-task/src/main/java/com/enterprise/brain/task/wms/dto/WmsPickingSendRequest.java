@@ -48,6 +48,8 @@ public class WmsPickingSendRequest {
         private BigDecimal quantity;
         private String unitCode;
         private String planCode = "";
+        @Schema(description = "金蝶生产用料清单分录内码（FEntity_FEntryID），推送 WMS ItemId")
+        private String itemId;
         private String productionStationCode;
         private String outWarehouseCode;
     }

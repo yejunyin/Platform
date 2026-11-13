@@ -406,10 +406,12 @@ public class OneClickPickScheduler {
             WmsOneClickPickEntry e = entries.get(i);
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("ItemNo", itemNo++);
+            m.put("ItemId", toIntOrZero(e.getItemId()));
             m.put("MaterialCode", e.getMaterialCode());
             m.put("BatchCode", null);
             m.put("Quantity", qty);
             m.put("UnitCode", e.getUnitCode() != null ? e.getUnitCode() : "");
+            m.put("PlanCode", e.getPlanCode() != null ? e.getPlanCode() : "");
             m.put("ProductionStationCode", e.getStationCode() != null ? e.getStationCode() : "3SC01");
             m.put("OutWarehouseCode", e.getWarehouseCode() != null ? e.getWarehouseCode() : "2010");
             wmsEntries.add(m);
@@ -639,4 +641,10 @@ public class OneClickPickScheduler {
     }
 
     public boolean isEnabled() { return enabled; }
+
+    /** 金蝶分录内码转 int，null/空/非数字 → 0 */
+    private int toIntOrZero(String s) {
+        if (s == null || s.isEmpty()) return 0;
+        try { return Integer.parseInt(s.trim()); } catch (NumberFormatException ex) { return 0; }
+    }
 }

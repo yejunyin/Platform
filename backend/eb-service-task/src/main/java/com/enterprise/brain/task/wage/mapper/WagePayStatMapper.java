@@ -14,7 +14,10 @@ public interface WagePayStatMapper extends BaseMapper<WagePayStat> {
 
     /**
      * 重新计算前物理清空（仅清除未复核行，已复核的保留，避免覆盖复核人/复核时间）
+     * @deprecated 全局删除存在重复风险：多工单分批开工时，已复核行被保留但同工单新行重复插入，
+     *             改用 {@link #deleteUnreviewedByTaskNo(String)} 按工单精确处理
      */
+    @Deprecated
     @Delete("DELETE FROM wage_pay_stat WHERE reviewer IS NULL")
     int deleteUnreviewed();
 
@@ -23,6 +26,19 @@ public interface WagePayStatMapper extends BaseMapper<WagePayStat> {
      */
     @Delete("DELETE FROM wage_pay_stat")
     int deleteAllPhysical();
+
+    /**
+     * 按生产任务单号精确清除未复核行
+     * <p>recalc 按工单逐个重建，确保：已复核行保留 + 同工单未复核行清除 + 重建当前全量</p>
+     */
+    @Delete("DELETE FROM wage_pay_stat WHERE task_no = #{taskNo} AND reviewer IS NULL")
+    int deleteUnreviewedByTaskNo(@Param("taskNo") String taskNo);
+
+    /**
+     * 全表物理清空（指定工单，仅彻底重置某工单工资数据时使用）
+     */
+    @Delete("DELETE FROM wage_pay_stat WHERE task_no = #{taskNo}")
+    int deleteAllByTaskNo(@Param("taskNo") String taskNo);
 
     /**
      * 已出现过的工资月份（倒序，供下拉）

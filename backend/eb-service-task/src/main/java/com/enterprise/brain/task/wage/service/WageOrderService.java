@@ -191,7 +191,7 @@ public class WageOrderService {
     // 明细级操作（按 wage_material.id）
     // ------------------------------------------------------------
 
-    /** 开工：按明细 ID */
+    /** 开工：按明细 ID —— 只改状态 + 记开工时间 + 写 confirm 留痕，不触发病重算 */
     @Transactional(rollbackFor = Exception.class)
     public void startMaterial(Long materialId, WageOrderStartRequest req) {
         WageMaterial m = mustGetMaterial(materialId);
@@ -227,14 +227,8 @@ public class WageOrderService {
         confirm.setConfirmStatus("已确认");
         confirmMapper.insert(confirm);
 
-        // 自动重算计件明细
-        try {
-            String operator = req.getConfirmerName() == null ? req.getConfirmerNo() : req.getConfirmerName();
-            int n = payStatService.recalc(operator == null ? "开工自动" : operator);
-            log.info("[工资核算] 开工自动重算计件明细：生成 {} 条（物料明细 id={}）", n, materialId);
-        } catch (Exception e) {
-            log.warn("[工资核算] 开工自动重算计件明细失败：{}", e.getMessage());
-        }
+        // 开工不触发病重算 —— 只有完工才算工资（由 doneMaterial 触发）
+        log.info("[工资核算] 开工完成：明细 id={}, taskNo={}, group={}", materialId, m.getTaskNo(), group.getGroupName());
     }
 
     /** 完工：按明细 ID */
@@ -252,9 +246,11 @@ public class WageOrderService {
         m.setFinishQty(req.getStockInQty());
         materialMapper.updateById(m);
 
+        // 自动重算计件明细（只重建当前工单，不影响其他工单的 paystat 数据）
         try {
-            int n = payStatService.recalc(req.getFinishUser() == null ? "完工自动" : req.getFinishUser());
-            log.info("[工资核算] 完工自动重算计件明细：生成 {} 条（物料明细 id={}）", n, materialId);
+            String taskNo = m.getTaskNo();
+            int n = payStatService.recalcForTask(req.getFinishUser() == null ? "完工自动" : req.getFinishUser(), taskNo);
+            log.info("[工资核算] 完工自动重算计件明细：生成 {} 条（物料明细 id={}, taskNo={}）", n, materialId, taskNo);
         } catch (Exception e) {
             log.warn("[工资核算] 完工自动重算计件明细失败：{}", e.getMessage());
         }
@@ -272,6 +268,16 @@ public class WageOrderService {
         }
         m.setGroupId(groupId);
         materialMapper.updateById(m);
+
+        // 改组别后该 task_no 的 paystat 必须重建（组员/系数/分摊比例全变了）
+        if ("开工".equals(m.getBizStatus())) {
+            try {
+                int n = payStatService.recalcForTask("改组别自动", m.getTaskNo());
+                log.info("[工资核算] 改组别自动重算计件明细：生成 {} 条（物料明细 id={}, taskNo={}）", n, materialId, m.getTaskNo());
+            } catch (Exception e) {
+                log.warn("[工资核算] 改组别自动重算计件明细失败：{}", e.getMessage());
+            }
+        }
     }
 
     /** 删除：按明细 ID */
@@ -282,13 +288,12 @@ public class WageOrderService {
     }
 
     // ------------------------------------------------------------
-    // 兼容旧接口（按 task_no 批量操作 → 作用到该 task_no 下所有明细）
+    // 兼容旧接口（按 task_no 批量操作 → 循环只改状态，recalc 在最后只触发一次）
     // ------------------------------------------------------------
 
     @Deprecated
     @Transactional(rollbackFor = Exception.class)
     public void start(Long id, WageOrderStartRequest req) {
-        // 兼容：选中单据头 id 时，对该 task_no 下所有"计划"状态明细批量开工
         WageOrder order = orderMapper.selectById(id);
         if (order == null) throw new BusinessException("任务单不存在或已删除");
 
@@ -299,9 +304,33 @@ public class WageOrderService {
                         .eq(WageMaterial::getDeleted, 0));
         if (plans.isEmpty()) throw new BusinessException("该任务单下无可开工明细");
 
+        // 循环只改状态 + 写 confirm，不触发病重算（开工不算工资）
+        LocalDateTime now = LocalDateTime.now();
         for (WageMaterial m : plans) {
-            startMaterial(m.getId(), req);
+            WageGroup group = groupMapper.selectById(req.getGroupId());
+            if (group == null) throw new BusinessException("请选择有效的加工组别");
+            m.setGroupId(group.getId());
+            m.setBizStatus("开工");
+            m.setStartTime(now);
+            m.setSettleStatus("已提交");
+            if (m.getProcessName() == null || m.getProcessName().isEmpty()) {
+                m.setProcessName(group.getDefaultProcess());
+            }
+            materialMapper.updateById(m);
+
+            WageConfirm confirm = new WageConfirm();
+            confirm.setTaskNo(m.getTaskNo());
+            confirm.setMaterialCode(m.getMaterialCode());
+            confirm.setGroupId(group.getId());
+            confirm.setProcessName(m.getProcessName() != null ? m.getProcessName() : group.getDefaultProcess());
+            confirm.setConfirmQty(m.getQty());
+            confirm.setErpQty(m.getQty());
+            confirm.setConfirmerNo(req.getConfirmerNo());
+            confirm.setConfirmTime(now);
+            confirm.setConfirmStatus("已确认");
+            confirmMapper.insert(confirm);
         }
+        log.info("[工资核算] 批量开工完成：taskNo={}, 明细数={}", order.getTaskNo(), plans.size());
     }
 
     @Deprecated
@@ -317,8 +346,25 @@ public class WageOrderService {
                         .eq(WageMaterial::getDeleted, 0));
         if (running.isEmpty()) throw new BusinessException("该任务单下无已开工明细");
 
+        // 循环只改状态，不逐条 recalc
+        LocalDateTime now = LocalDateTime.now();
         for (WageMaterial m : running) {
-            doneMaterial(m.getId(), req);
+            m.setBizStatus("完工");
+            m.setFinishUser(req.getFinishUser());
+            m.setFinishTime(now);
+            m.setStockInQty(req.getStockInQty());
+            m.setFinishQty(req.getStockInQty());
+            materialMapper.updateById(m);
+        }
+
+        // 循环结束后，recalc 只触发一次！
+        try {
+            String operator = req.getFinishUser() == null ? "完工自动" : req.getFinishUser();
+            int n = payStatService.recalcForTask(operator, order.getTaskNo());
+            log.info("[工资核算] 批量完工自动重算：taskNo={}, 明细数={}, 生成paystat={}",
+                    order.getTaskNo(), running.size(), n);
+        } catch (Exception e) {
+            log.warn("[工资核算] 批量完工自动重算失败：{}", e.getMessage());
         }
     }
 
@@ -335,8 +381,22 @@ public class WageOrderService {
                         .eq(WageMaterial::getDeleted, 0));
         if (list.isEmpty()) throw new BusinessException("该任务单下无可改组别明细");
 
+        // 循环只改状态
         for (WageMaterial m : list) {
-            changeGroupMaterial(m.getId(), groupId);
+            m.setGroupId(groupId);
+            materialMapper.updateById(m);
+        }
+
+        // 循环结束后，recalc 只触发一次！
+        boolean hasRunning = list.stream().anyMatch(m -> "开工".equals(m.getBizStatus()));
+        if (hasRunning) {
+            try {
+                int n = payStatService.recalcForTask("改组别自动", order.getTaskNo());
+                log.info("[工资核算] 批量改组别自动重算：taskNo={}, 明细数={}, 生成paystat={}",
+                        order.getTaskNo(), list.size(), n);
+            } catch (Exception e) {
+                log.warn("[工资核算] 批量改组别自动重算失败：{}", e.getMessage());
+            }
         }
     }
 

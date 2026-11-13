@@ -46,6 +46,9 @@ public class WmsPickingEntry implements Serializable {
     @Schema(description = "工序编码")
     private String planCode;
 
+    @Schema(description = "金蝶生产用料清单分录内码（FEntity_FEntryID），推送 WMS ItemId 用")
+    private String itemId;
+
     @Schema(description = "生产工位编码")
     private String stationCode;
 

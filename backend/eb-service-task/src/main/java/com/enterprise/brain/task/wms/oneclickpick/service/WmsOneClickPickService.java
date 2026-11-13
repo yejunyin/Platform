@@ -116,6 +116,7 @@ public class WmsOneClickPickService {
                 entry.setSentQty(BigDecimal.ZERO);
                 entry.setUnitCode(e.getUnitCode());
                 entry.setPlanCode(e.getPlanCode() != null ? e.getPlanCode() : "");
+                entry.setItemId(e.getItemId());
                 entry.setStationCode(e.getProductionStationCode() != null && !e.getProductionStationCode().isEmpty()
                         ? e.getProductionStationCode() : "3SC01");
                 entry.setWarehouseCode(e.getOutWarehouseCode() != null && !e.getOutWarehouseCode().isEmpty()

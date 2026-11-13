@@ -575,6 +575,7 @@ async function confirmSend() {
       quantity: p._pickQty,
       unitCode: p.unitNumber,
       planCode: p.planCode,
+      itemId: p.itemId,
       productionStationCode: p._stationCode,
     }))
     const res = await wmsPickingApi.push({

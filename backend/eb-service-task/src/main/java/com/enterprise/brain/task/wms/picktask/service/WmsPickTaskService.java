@@ -124,6 +124,7 @@ public class WmsPickTaskService {
                 entry.setSentQty(BigDecimal.ZERO);
                 entry.setUnitCode(e.getUnitCode());
                 entry.setPlanCode(e.getPlanCode() != null ? e.getPlanCode() : "");
+                entry.setItemId(e.getItemId());
                 // 默认值统一 ProductionStationCode=3SC01, WarehouseCode=2010（和 WMS 叫料一致）
                 entry.setStationCode(e.getProductionStationCode() != null && !e.getProductionStationCode().isEmpty()
                         ? e.getProductionStationCode() : "3SC01");

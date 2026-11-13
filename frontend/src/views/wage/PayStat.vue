@@ -114,7 +114,8 @@
         </el-table-column>
         <el-table-column label="操作" width="80" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openReview(row as WagePayStat)">复核</el-button>
+            <el-button v-if="!row.reviewer" link type="primary" @click="openReview(row as WagePayStat)">复核</el-button>
+            <span v-else class="muted">已复核</span>
           </template>
         </el-table-column>
       </el-table>
@@ -365,5 +366,9 @@ async function confirmBatch() {
 .amount {
   color: $warning-color;
   font-weight: 700;
+}
+.muted {
+  color: #909399;
+  font-size: 12px;
 }
 </style>

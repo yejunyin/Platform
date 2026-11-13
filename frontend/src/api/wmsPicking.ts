@@ -18,6 +18,8 @@ export interface PpbomRow {
   unitName?: string
   /** 计划跟踪号（PRD_PPBOM.FMtoNo，推 WMS PlanCode 用） */
   planCode?: string
+  /** 金蝶生产用料清单分录内码（FEntity_FEntryID），推 WMS ItemId 用 */
+  itemId?: string
   /** 发料仓库（FPickStockId，基础资料属性，中文仓库名） */
   pickStock?: string
 
@@ -63,6 +65,8 @@ export interface PickingEntry {
   quantity?: number
   unitCode?: string
   planCode?: string
+  /** 金蝶生产用料清单分录内码（FEntity_FEntryID），推送 WMS ItemId */
+  itemId?: string
   productionStationCode?: string
   outWarehouseCode?: string
 }

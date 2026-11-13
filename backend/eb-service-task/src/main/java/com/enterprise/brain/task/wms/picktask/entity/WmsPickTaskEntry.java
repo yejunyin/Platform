@@ -52,6 +52,7 @@ public class WmsPickTaskEntry implements Serializable {
 
     private String unitCode;
     private String planCode;
+    private String itemId;
     private String stationCode;
     private String warehouseCode;
 

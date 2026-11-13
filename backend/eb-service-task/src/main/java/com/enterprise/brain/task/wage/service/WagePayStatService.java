@@ -61,51 +61,81 @@ public class WagePayStatService {
     }
 
     /**
-     * 重新计算：仅清除未复核行，按 wage_material 中 开工/完工 状态的明细重新生成
-     * <p>已复核行不动，避免覆盖 reviewer/review_time 等人工复核信息</p>
-     * @return 生成明细条数
+     * 全量重新计算（手动点"重新计算"按钮时调用）
+     * <p>清除所有已开工/完工工单的 paystat 行，全量重建</p>
      */
     @Transactional(rollbackFor = Exception.class)
     public int recalc(String operator) {
-        int cleared = payStatMapper.deleteUnreviewed();
-        log.info("[工资核算] recalc：清除未复核明细 {} 条", cleared);
+        return doRecalc(operator, null);
+    }
 
-        // 从 wage_material 取所有"开工/完工"且有 startTime + groupId 的明细
-        List<WageMaterial> materials = materialMapper.selectList(
-                new LambdaQueryWrapper<WageMaterial>()
-                        .in(WageMaterial::getBizStatus, "开工", "完工")
-                        .isNotNull(WageMaterial::getStartTime)
-                        .isNotNull(WageMaterial::getGroupId)
-                        .eq(WageMaterial::getDeleted, 0));
+    /**
+     * 按工单精确重新计算（开工/完工/改组别 时调用）
+     * <p>只清除并重建指定 task_no 的 paystat，不影响其他工单的数据</p>
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public int recalcForTask(String operator, String taskNo) {
+        return doRecalc(operator, taskNo);
+    }
+
+    /**
+     * 核心重算逻辑
+     *
+     * @param operator 操作人
+     * @param taskNo   指定工单（null = 全量，非空 = 只处理这一张）
+     */
+    private int doRecalc(String operator, String taskNo) {
+        // ===== Step 1: 查询 wage_material（只算"完工"的，开工中的不算工资） =====
+        LambdaQueryWrapper<WageMaterial> wrapper = new LambdaQueryWrapper<WageMaterial>()
+                .eq(WageMaterial::getBizStatus, "完工")
+                .isNotNull(WageMaterial::getStartTime)
+                .isNotNull(WageMaterial::getGroupId)
+                .eq(WageMaterial::getDeleted, 0);
+        if (taskNo != null && !taskNo.isEmpty()) {
+            wrapper.eq(WageMaterial::getTaskNo, taskNo);
+        }
+        List<WageMaterial> materials = materialMapper.selectList(wrapper);
 
         if (materials.isEmpty()) {
-            log.warn("[工资核算] recalc：没有符合条件的用料明细（要求 biz_status=开工/完工 + start_time 非空 + group_id 非空）");
+            log.warn("[工资核算] recalc{}：没有符合条件的用料明细（要求 biz_status=开工/完工 + start_time 非空 + group_id 非空）",
+                    taskNo == null ? "" : "(taskNo=" + taskNo + ")");
             return 0;
         }
 
-        // 按 task_no 分组（同一工单的多条明细一起算 groupAmount）
+        // ===== Step 2: 按 task_no 分组 =====
         Map<String, List<WageMaterial>> byTask = new HashMap<>();
         for (WageMaterial m : materials) {
             byTask.computeIfAbsent(m.getTaskNo(), k -> new ArrayList<>()).add(m);
         }
-        log.info("[工资核算] recalc 命中用料明细 {} 条，涉及工单 {} 张（操作人 {}）",
+        log.info("[工资核算] recalc{} 命中用料明细 {} 条，涉及工单 {} 张（操作人 {}）",
+                taskNo == null ? "" : "(taskNo=" + taskNo + ")",
                 materials.size(), byTask.size(), operator);
 
-        // 缓存
+        // ===== Step 3: 按工单精确清除旧 paystat =====
+        // Bug 根因修复：之前全局 deleteUnreviewed() 或全量重建会误伤其他工单的数据
+        // 现在：只清除本次涉及的 task_no 的 paystat，其他工单数据一律不动
+        int clearedTotal = 0;
+        for (String tn : byTask.keySet()) {
+            int cleared = payStatMapper.deleteAllByTaskNo(tn);
+            clearedTotal += cleared;
+            if (cleared > 0 || taskNo != null) {
+                log.info("[工资核算] recalc：工单 {} 清除旧明细 {} 条", tn, cleared);
+            }
+        }
+        log.info("[工资核算] recalc：本次清除旧明细共 {} 条，准备重建", clearedTotal);
+
+        // ===== Step 4: 逐工单重建 paystat =====
         Map<Long, WageGroup> groupCache = new HashMap<>();
         Map<Long, List<WageStaffVO>> memberCache = new HashMap<>();
 
-        // 汇总计数器
         int skippedNoPrice = 0, skippedNoMember = 0, skippedNoCoef = 0, okTask = 0;
-
         List<WagePayStat> toInsert = new ArrayList<>();
-        LocalDateTime now = LocalDateTime.now();
 
         for (Map.Entry<String, List<WageMaterial>> entry : byTask.entrySet()) {
-            String taskNo = entry.getKey();
+            String tn = entry.getKey();
             List<WageMaterial> items = entry.getValue();
 
-            // 逐明细算单价 & groupAmount
+            // 4.1 逐明细算单价 & groupAmount
             BigDecimal groupAmount = BigDecimal.ZERO;
             List<ItemCalc> calcs = new ArrayList<>();
             StringBuilder noPriceProcs = new StringBuilder();
@@ -121,17 +151,17 @@ public class WagePayStatService {
                     if (noPriceProcs.length() > 0) noPriceProcs.append(",");
                     noPriceProcs.append(m.getProcessName());
                     log.warn("[工资核算] 工单 {} 用料明细 id={} 工序='{}' 未匹配到有效单价",
-                            taskNo, m.getId(), m.getProcessName());
+                            tn, m.getId(), m.getProcessName());
                 }
             }
             if (groupAmount.signum() <= 0) {
                 skippedNoPrice++;
                 log.warn("[工资核算] [SKIP] 工单 {} 跳过：全部 {} 条子项无有效单价（涉及工序: {}）",
-                        taskNo, items.size(), noPriceProcs);
+                        tn, items.size(), noPriceProcs);
                 continue;
             }
 
-            // 取第一条明细的 groupId 作为工单 group（同一工单组应该相同）
+            // 4.2 取组员
             Long groupId = items.get(0).getGroupId();
             WageGroup group = groupCache.computeIfAbsent(groupId, groupMapper::selectById);
             String groupName = group == null ? null : group.getGroupName();
@@ -140,9 +170,11 @@ public class WagePayStatService {
             if (members.isEmpty()) {
                 skippedNoMember++;
                 log.warn("[工资核算] [SKIP] 工单 {} 跳过：加工组 id={}({}) 无在职成员（请检查 wage_staff_ext 是否已配置该组成员）",
-                        taskNo, groupId, groupName);
+                        tn, groupId, groupName);
                 continue;
             }
+
+            // 4.3 计算系数和
             BigDecimal coefSum = BigDecimal.ZERO;
             for (WageStaffVO mem : members) {
                 if (mem.getCoef() != null) coefSum = coefSum.add(mem.getCoef());
@@ -150,11 +182,11 @@ public class WagePayStatService {
             if (coefSum.signum() <= 0) {
                 skippedNoCoef++;
                 log.warn("[工资核算] [SKIP] 工单 {} 跳过：加工组 id={}({}) 成员系数和为 0（共 {} 人）",
-                        taskNo, groupId, groupName, members.size());
+                        tn, groupId, groupName, members.size());
                 continue;
             }
 
-            // 同一工单，用第一条明细的 startTime 作为月份归属
+            // 4.4 计算分摊 + 生成 paystat 行
             LocalDateTime startTime = items.get(0).getStartTime();
             String month = startTime.format(MONTH_FMT);
 
@@ -167,7 +199,7 @@ public class WagePayStatService {
                     WageMaterial m = c.item;
                     WagePayStat ps = new WagePayStat();
                     ps.setWageMonth(month);
-                    ps.setTaskNo(taskNo);
+                    ps.setTaskNo(tn);
                     ps.setGroupId(groupId);
                     ps.setGroupName(groupName);
                     ps.setStaffName(mem.getRealName());
@@ -193,14 +225,16 @@ public class WagePayStatService {
             }
             okTask++;
             log.info("[工资核算] [OK] 工单 {} 通过：组={}({}) 成员={}人 groupAmount={} 生成={}行",
-                    taskNo, groupName, groupId, members.size(), groupAmount,
+                    tn, groupName, groupId, members.size(), groupAmount,
                     members.size() * calcs.size());
         }
 
+        // ===== Step 5: 批量插入 =====
         for (WagePayStat ps : toInsert) {
             payStatMapper.insert(ps);
         }
-        log.info("[工资核算] recalc 完成：生成 {} 行（成功 {} 工单，跳过 {} = 无单价/无成员/系数0）",
+        log.info("[工资核算] recalc 完成（{}）：生成 {} 行（成功 {} 工单，跳过 {} = 无单价/无成员/系数0）",
+                taskNo == null ? "全量" : "taskNo=" + taskNo,
                 toInsert.size(), okTask,
                 skippedNoPrice + skippedNoMember + skippedNoCoef);
         return toInsert.size();

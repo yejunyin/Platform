@@ -92,7 +92,7 @@ public class WmsPickingService {
             return new ArrayList<>();
         }
         String filter = "FMOBillNO = '" + productionNo.replace("'", "''") + "'";
-        String fieldKeys = "FBillNo,FMOBillNO,FMaterialID.fnumber,FMaterialID.fname," +
+        String fieldKeys = "FEntity_FEntryID,FBillNo,FMOBillNO,FMaterialID.fnumber,FMaterialID.fname," +
                 "FMaterialID2.fnumber,FMaterialID2.fname,FNeedQty2,FPickedQty,FUnitID2.fnumber," +
                 "FUnitID2.fname,FMTONO,FPickStockId";
 
@@ -104,10 +104,10 @@ public class WmsPickingService {
         int totalRowCount = 0;
         int filteredOut = 0;
         for (JsonNode row : rows) {
-            if (!row.isArray() || row.size() < 12) continue;
+            if (!row.isArray() || row.size() < 13) continue;
             totalRowCount++;
-            BigDecimal needQty = kingdeeService.decimalOf(row.get(6));
-            BigDecimal pickedQty = kingdeeService.decimalOf(row.get(7));
+            BigDecimal needQty = kingdeeService.decimalOf(row.get(7));
+            BigDecimal pickedQty = kingdeeService.decimalOf(row.get(8));
 
             // [临时关闭] 仅保留 应发数量 > 已领数量 的行 —— 先全部显示，由剩余可领=应发-已领-叫料已推-定时承诺 来拦截
             // BigDecimal safeNeed = needQty != null ? needQty : BigDecimal.ZERO;
@@ -118,18 +118,19 @@ public class WmsPickingService {
             // }
 
             WmsPpbomRowVO vo = new WmsPpbomRowVO();
-            vo.setPpbomBillNo(kingdeeService.textOf(row.get(0)));
-            vo.setProductionNo(kingdeeService.textOf(row.get(1)));
-            vo.setProductCode(kingdeeService.textOf(row.get(2)));
-            vo.setProductName(kingdeeService.textOf(row.get(3)));
-            vo.setMaterialCode(kingdeeService.textOf(row.get(4)));
-            vo.setMaterialName(kingdeeService.textOf(row.get(5)));
+            vo.setItemId(kingdeeService.textOf(row.get(0)));
+            vo.setPpbomBillNo(kingdeeService.textOf(row.get(1)));
+            vo.setProductionNo(kingdeeService.textOf(row.get(2)));
+            vo.setProductCode(kingdeeService.textOf(row.get(3)));
+            vo.setProductName(kingdeeService.textOf(row.get(4)));
+            vo.setMaterialCode(kingdeeService.textOf(row.get(5)));
+            vo.setMaterialName(kingdeeService.textOf(row.get(6)));
             vo.setNeedQty(needQty);
             vo.setPickedQty(pickedQty);
-            vo.setUnitNumber(kingdeeService.textOf(row.get(8)));
-            vo.setUnitName(kingdeeService.textOf(row.get(9)));
-            vo.setPlanCode(kingdeeService.textOf(row.get(10)));
-            vo.setPickStock(kingdeeService.textOf(row.get(11)));
+            vo.setUnitNumber(kingdeeService.textOf(row.get(9)));
+            vo.setUnitName(kingdeeService.textOf(row.get(10)));
+            vo.setPlanCode(kingdeeService.textOf(row.get(11)));
+            vo.setPickStock(kingdeeService.textOf(row.get(12)));
             // 先设默认值，后面统一填充
             vo.setPushedQty(BigDecimal.ZERO);
             vo.setPickTaskTotalQty(BigDecimal.ZERO);
@@ -370,6 +371,12 @@ public class WmsPickingService {
         return v != null ? v : BigDecimal.ZERO;
     }
 
+    /** 金蝶分录内码 FEntity_FEntryID 转 int，null/空/非数字 → 0 */
+    private int toIntOrZero(String s) {
+        if (s == null || s.isEmpty()) return 0;
+        try { return Integer.parseInt(s.trim()); } catch (NumberFormatException ex) { return 0; }
+    }
+
     /**
      * 校验叫料推送数量不能超过应发数量
      * 已领 + 叫料已推送 + 定时任务承诺总量 + 本次领料 ≤ 金蝶应发数量
@@ -502,6 +509,7 @@ public class WmsPickingService {
             entry.setPickedQty(e.getQuantity());
             entry.setUnitCode(e.getUnitCode());
             entry.setPlanCode(e.getPlanCode());
+            entry.setItemId(e.getItemId());
             entry.setStationCode(e.getProductionStationCode());
             entry.setWarehouseCode(e.getOutWarehouseCode());
             entry.setCreateTime(LocalDateTime.now());
@@ -555,10 +563,12 @@ public class WmsPickingService {
         for (WmsPickingSendRequest.Entry e : request.getEntries()) {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("ItemNo", itemNo++);
+            m.put("ItemId", toIntOrZero(e.getItemId()));
             m.put("MaterialCode", e.getMaterialCode());
             m.put("BatchCode", null);
             m.put("Quantity", safe(e.getQuantity()));
             m.put("UnitCode", e.getUnitCode() != null ? e.getUnitCode() : "");
+            m.put("PlanCode", e.getPlanCode() != null ? e.getPlanCode() : "");
             m.put("ProductionStationCode", e.getProductionStationCode() != null ? e.getProductionStationCode() : "3SC01");
             m.put("OutWarehouseCode", e.getOutWarehouseCode() != null ? e.getOutWarehouseCode() : "2010");
             wmsEntries.add(m);
@@ -632,6 +642,7 @@ public class WmsPickingService {
                 entry.setPickedQty(e.getQuantity());
                 entry.setUnitCode(e.getUnitCode());
                 entry.setPlanCode(e.getPlanCode());
+                entry.setItemId(e.getItemId());
                 entry.setStationCode(e.getProductionStationCode());
                 entry.setWarehouseCode(e.getOutWarehouseCode());
                 entry.setCreateTime(now);
@@ -687,6 +698,7 @@ public class WmsPickingService {
         for (WmsPickingEntry e : entries) {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("ItemNo", e.getItemNo());
+            m.put("ItemId", toIntOrZero(e.getItemId()));
             m.put("MaterialCode", e.getMaterialCode());
             m.put("BatchCode", null);
             m.put("Quantity", e.getPickedQty());
